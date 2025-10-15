@@ -16,6 +16,7 @@ x_max <- 6
 eps_mean <- 0
 # when c=0, variance is 1 and it is homoscedastic baseline.
 c_params <- c(0, 0.5, 1, 2, 4, 8)
+#used as input for the function below
 params <- list(
   n = sample_size,
   x_min = x_min,
@@ -24,10 +25,6 @@ params <- list(
   beta0 = beta0,
   beta1 = beta1
 )
-
-# Access them like a dictionary
-params$n
-params$beta1
 
 
 ## ================================
@@ -56,37 +53,54 @@ get_eps_var <- function(x, c, mean_x, var_x) {
   return(eps_var)
 }
 #-----------------------------------------------------------
-#' Generate simulated dataset with errors
+#' Simulate linear regression data with controllable heteroscedasticity
+#' 
+#' This function generates synthetic data for a linear regression model
+#' @param c Numeric. Heteroscedasticity parameter controlling the degree of
+#'   variance inflation as a function of x.
+#' @param x Numeric vector of length n. Predictor values used directly in
+#'   the simulation. Supplying the same x across different values of c
+#'   allows apples-to-apples comparisons by holding the predictor
+#'   distribution constant.
+#' @param params A list containing:
+#'   - n: sample size
+#'   - x_min, x_max: range of x (uniform)
+#'   - eps_mean: mean of the error term
+#'   - beta0, beta1: regression coefficients
+#' @param verbose Logical (default = TRUE). If TRUE, the function prints a
+#'   short status message ("Data simulated successfully") along with a
+#'   diagnostic table of parameters and summary statistics
 #'
-#' Draws predictors from a uniform distribution, computes error 
-#' variance, simulates error terms, and generates responses from a linear model.
-#'
-#' @param c Numeric scalar, heteroscedasticity parameter.
-#' @param n Sample size (number of observations).
-#' @param x_min Lower bound of predictor distribution (uniform).
-#' @param x_max Upper bound of predictor distribution (uniform).
-#' @param eps_mean Mean of the error term.
-#' @param beta0 Intercept parameter.
-#' @param beta1 Slope parameter.
-#'
-#' @return Data frame with columns:
+#' @return A data.frame with columns:
 #'   - x: predictor values
 #'   - y: response values
 #'   - c_param: heteroscedasticity parameter
-#'   - eps: error terms
-#'   - eps_var: conditional error variance for each x
-get_data <- function(c, paramsn, x_min, x_max, eps_mean, beta0, beta1) {
+#'   - eps: simulated error terms
+#'   - eps_var: conditional variance of each error term
+#'
+#' @details
+#' Why normalization is applied:
+#'   The variance function is scaled so that the *average error variance across x*
+#'   remains equal to 1 for all values of c. Without this normalization, larger c
+#'   would both increase heteroscedasticity *and* inflate the overall noise level,
+#'   confounding the comparison between homoscedastic and heteroscedastic settings.
+#'   By holding the average variance constant, the simulation isolates the impact
+#'   of heteroscedasticity on inference rather than on total noise.
+#'
+#' Why store extra parameters:
+#'   Returning summary statistics (mean of eps_var, variance of y, etc.)
+#'   provides a quick check that the simulation is working as expected,
+#'   and documents the conditions under which the data were generated.
+get_data <- function(c, x, params, verbose=TRUE) {
   n <- params$n
   x_min <- params$x_min
   x_max <- params$x_max
   eps_mean <- params$eps_mean
-  beta0 <- 
+  beta0 <- params$beta0
+  beta1 <- params$beta1
   # Pre-compute mean and variance of X ~ Uniform(x_min, x_max)
   mean_x <- (x_min + x_max) / 2
   var_x  <- (x_max - x_min)^2 / 12
-  
-  # Generate predictor values
-  x <- runif(n, x_min, x_max)
   
   # Compute conditional error variance for each x
   x_moments <- get_unif_moments(x_min, x_max)
@@ -109,22 +123,87 @@ get_data <- function(c, paramsn, x_min, x_max, eps_mean, beta0, beta1) {
     eps_var = eps_var
   )
   params = data.frame(
-      c = c, n = n, x_min = x_min, x_max = x_max, mean_x=mean_x, var_x=var_x,
-      eps_mean = eps_mean, mean_eps_var = mean(eps_var), var_y=var(y), beta0 = beta0, beta1 = beta1
+      c = c, n = n, x_min = x_min, x_max = x_max, mean_x=mean_x, var_x=var_x, x_bar=mean(x), sample_var_x=var(x),
+      beta0 = beta0, beta1 = beta1, eps_mean = eps_mean, mean_eps_var = mean(eps_var), var_y=var(y)
     )
-  print("data is simulated successfully")
-  print(params)
+  if (verbose){
+    message("Data simulated successfully")
+    print(params)}
   return(data)
 }
 #-----------------------------------------------------------
+#' Fit OLS and extract inference metrics for the slope coefficient
+#'
+#' This function fits a simple linear regression model of the form
+#'   \eqn{y = \beta_0 + \beta_1 x + \varepsilon} using ordinary least squares.
+#' It returns the estimated slope, its standard error, 95% confidence interval,
+#' and p-value based on classical OLS assumptions.
+#'
+#' @param dat A data.frame containing the variables:
+#'   - x: numeric predictor
+#'   - y: numeric response
+#'
+#' @return A data.frame with one row containing:
+#'   - beta1_hat: estimated slope coefficient for x
+#'   - se: standard error of the slope estimate
+#'   - ci_lower: lower bound of the 95% confidence interval
+#'   - ci_upper: upper bound of the 95% confidence interval
+#'   - p_value: p-value testing H0: beta1 = 0
+#'   - n: sample size used in the regression
+#'   - r_squared: model R-squared
+#'
+#' @details
+#' Why this is useful:
+#'   These metrics allow assessment of bias, efficiency, coverage, and test size
+#'   across different simulation settings. In particular:
+#'   - beta1_hat can be compared to beta1_true to check bias.
+#'   - se reflects estimation precision.
+#'   - ci_lower and ci_upper allow CI coverage evaluation.
+#'   - p_value is used to assess power (when beta1_true ≠ 0).
+#'
+#' Confidence intervals are computed using R’s built-in \code{confint()} function,
+#' which relies on the t distribution with residual degrees of freedom.
+fit_lm <- function(dat) {
+  stopifnot(all(c("x","y") %in% names(dat)))
+  
+  fit <- lm(y ~ x, data = dat)
+  n <- nobs(fit)
+  r2 <- summary(fit)$r.squared
+  beta1_hat <- coef(fit)[["x"]]
+  
+  summ <- summary(fit)$coefficients
+  se <- summ["x", "Std. Error"]
+  pval <- summ["x", "Pr(>|t|)"]
+  
+  # 95% CI for slope directly from confint()
+  ci <- confint(fit, "x", level = 0.95)
+  ci_lower <- ci[1]
+  ci_upper <- ci[2]
+  
+  return(data.frame(
+    beta1_hat = beta1_hat,
+    se = se,
+    ci_lower = ci_lower,
+    ci_upper = ci_upper,
+    p_value = pval,
+    n = n,
+    r_squared = r2,
+    row.names = NULL
+  ))
+}
 
 ## ================================
 ## 2. Data Generation
 ## ================================
-set.seed(1234)
-data_homo <- get_data(c=0, n=sample_size, x_min=x_min, x_max=x_max, eps_mean=eps_mean, beta0=beta0, beta1=beta1)
-set.seed(1234)
-data_hete1 <- get_data(c=1, n=sample_size, x_min=x_min, x_max=x_max, eps_mean=eps_mean, beta0=beta0, beta1=beta1)
+set.seed(seed)
+# Generate predictor values
+x <- runif(sample_size, x_min, x_max)
+set.seed(seed)
+data_homo <- get_data(c=0, x=x, params = params)
+set.seed(seed)
+data_hete1 <- get_data(c=8, x=x, params = params)
+
+
 ## ================================
 ## 3. Simulation Loop
 ## ================================
