@@ -25,7 +25,68 @@ params <- list(
   beta0 = beta0,
   beta1 = beta1
 )
+# 
+save_path <- ""
 
+#------------------------------------------------------------
+simulate_experiment <- function(c_values, params, n_reps = 1, verbose = FALSE) {
+  # --- unpack required params ---
+  x_min <- params$x_min
+  x_max <- params$x_max
+  n <- params$sample_size
+  total_iters <- length(c_values) * n_reps
+  pb <- utils::txtProgressBar(min = 0, max = total_iters, style = 3)
+  on.exit(close(pb), add = TRUE)
+  
+  iter <- 0
+  fits_list <- vector("list", total_iters)
+  data_list <- vector("list", total_iters)
+  
+  idx <- 1
+  for (c_val in c_values) {
+    for (r in seq_len(n_reps)) {
+      # simulate x fresh each replication
+      x <- runif(n, min = x_min, max = x_max)
+      
+      # generate data
+      dat <- get_data(c_value = c_val, x = x, params = params, verbose = FALSE)
+      
+      # fit model
+      fit_out <- fit_lm(dat)
+      
+      # store fit results (flattened to one-row df)
+      row_list <- as.list(fit_out)
+      row_list$rep <- r
+      row_list$c_value <- c_val
+      fits_list[[idx]] <- as.data.frame(row_list, stringsAsFactors = FALSE)
+      
+      # store dataset
+      data_list[[idx]] <- list(
+        rep     = r,
+        c_value = c_val,
+        data    = dat
+      )
+      
+      # progress bar
+      iter <- iter + 1
+      if (iter %% 10 == 0 || iter == total_iters) utils::setTxtProgressBar(pb, iter)
+      
+      idx <- idx + 1
+    }
+  }
+  
+  fits_df <- do.call(rbind, fits_list)
+  rownames(fits_df) <- NULL
+  
+  if (isTRUE(verbose)) {
+    message("Completed ", total_iters, " runs across ", length(c_values), " c values.")
+  }
+  
+  return(list(
+    fits = fits_df,     # tidy data frame of all fit results
+    datasets = data_list  # list of datasets per run
+  ))
+}
 
 ## ================================
 ## 1. Function
@@ -67,7 +128,7 @@ get_eps_var <- function(x, c, mean_x, var_x) {
 #'   - x_min, x_max: range of x (uniform)
 #'   - eps_mean: mean of the error term
 #'   - beta0, beta1: regression coefficients
-#' @param verbose Logical (default = TRUE). If TRUE, the function prints a
+#' @param verbose Logical (default = FALSE). If TRUE, the function prints a
 #'   short status message ("Data simulated successfully") along with a
 #'   diagnostic table of parameters and summary statistics
 #'
@@ -91,7 +152,7 @@ get_eps_var <- function(x, c, mean_x, var_x) {
 #'   Returning summary statistics (mean of eps_var, variance of y, etc.)
 #'   provides a quick check that the simulation is working as expected,
 #'   and documents the conditions under which the data were generated.
-get_data <- function(c, x, params, verbose=TRUE) {
+get_data <- function(c, x, params, verbose=FALSE) {
   n <- params$n
   x_min <- params$x_min
   x_max <- params$x_max
@@ -163,7 +224,7 @@ get_data <- function(c, x, params, verbose=TRUE) {
 #'
 #' Confidence intervals are computed using R’s built-in \code{confint()} function,
 #' which relies on the t distribution with residual degrees of freedom.
-fit_lm <- function(dat) {
+fit_lm <- function(dat, verbose=FALSE) {
   stopifnot(all(c("x","y") %in% names(dat)))
   
   fit <- lm(y ~ x, data = dat)
@@ -180,7 +241,7 @@ fit_lm <- function(dat) {
   ci_lower <- ci[1]
   ci_upper <- ci[2]
   
-  return(data.frame(
+  result <- data.frame(
     beta1_hat = beta1_hat,
     se = se,
     ci_lower = ci_lower,
@@ -188,26 +249,171 @@ fit_lm <- function(dat) {
     p_value = pval,
     n = n,
     r_squared = r2,
-    row.names = NULL
-  ))
+    c_param = unique(dat$c_param)
+  )
+  if (verbose){
+    message("model run successfully")
+    print(result)
+  }
+  return(result)
+}
+#-----------------------------------------------------------
+#' Simulate datasets and model fits across multiple c values
+#'
+#' This function loops over a vector of heteroscedasticity parameters (`c_values`)
+#' and repeated replications (`n_reps`). For each replication, a vector of predictors
+#' `x` is drawn once from Uniform(x_min, x_max) and reused across all `c` values. 
+#' For each combination of `rep` and `c`, data are simulated via `get_data()` and
+#' models are fitted with `fit_lm()`. Results are collected into two stacked data frames.
+#'
+#' A progress bar is shown in the console, and a one-line status message is updated
+#' during the run to indicate current replication, c index, and iteration count.
+#'
+#' @param c_values Numeric vector. Values of heteroscedasticity parameter `c` to simulate.
+#' @param params List. 
+#'   parameters required by `get_data()`.
+#' @param n_reps Integer. Number of replications to run for each `c` value.
+#' @param seed Optional integer. If supplied, sets random seed for reproducibility.
+#'
+#' @return A list with two elements:
+#'   \item{fits}{Data frame of stacked model fit results}
+#'   \item{datasets}{Data frame of stacked simulated datasets}
+#'
+simulate_over_c <- function(c_values, params, n_reps, seed = NULL) {
+  x_min <- params$x_min; x_max <- params$x_max; n <- params$n
+  if (!is.null(seed)) set.seed(seed)
+
+  fits_all     <- NULL
+  datasets_all <- NULL
+
+  total_iters <- n_reps * length(c_values)
+
+  # progress bar + reserve a second line for status text
+  pb <- utils::txtProgressBar(min = 0, max = total_iters, style = 3)
+  on.exit(close(pb), add = TRUE)
+  cat("\n")
+
+  iter <- 0L
+
+  for (r in seq_len(n_reps)) {
+    # for each rep, generate x once. x is same across all c but different across reps
+    x_rep <- runif(n, min = x_min, max = x_max)
+    # for each c, generate data using same x_rep
+    for (j in seq_along(c_values)) {
+      c_val <- c_values[j]
+
+      dat <- get_data(c = c_val, x = x_rep, params = params)
+      fit <- fit_lm(dat)
+
+      # tag
+      dat$rep <- r
+      fit$rep <- r
+
+      # append
+      datasets_all <- rbind(datasets_all, dat)
+      fits_all     <- rbind(fits_all, fit)
+
+      iter <- iter + 1L
+
+      # throttle progress bar updates to reduce overhead
+      if (iter %% 10L == 0L || iter == total_iters) {
+        utils::setTxtProgressBar(pb, iter)
+      }
+
+      # live status line (overwrites same line)
+      cat(sprintf(
+        "\rrep %d/%d | c %d/%d (c = %s) | iter %d/%d",
+        r, n_reps, j, length(c_values), as.character(c_val), iter, total_iters
+      ))
+      flush.console()
+    }
+  }
+
+  # finish with a fresh line
+  cat("\n")
+
+  list(fits = fits_all, datasets = datasets_all)
 }
 
+
+
+#-----------------------------------------------------------
+#' Sanity check for simulation results
+#'
+#' This function verifies that the simulation results produced by `simulate_over_c()`
+#' behave as expected. It checks variation of `x`, `eps`, and `y` across replications
+#' and consistency of `x` across different `c` values within each replication.
+#'
+#' Specifically, it performs three groups of checks:
+#' \enumerate{
+#'   \item \strong{Within each c}: verifies that `x`, `eps`, and `y` vary across
+#'         replications (`rep`).
+#'   \item \strong{Across c within each rep}: verifies that the vector of `x`
+#'         values is identical for all `c` values within the same replication.
+#'   \item \strong{Across c overall}: verifies that the variance of `eps` and
+#'         the variance of `y` differ across `c` values (expected under heteroscedasticity).
+#' }
+#'
+#' @param res A list returned by `simulate_over_c()`. Must contain an element
+#'   `datasets`, which is a data frame with columns `x`, `eps`, `y`, `c`, and `rep`.
+#'
+#' @return Prints a summary of the checks to the console.
+#'
+#' @details
+#' - If all checks return `TRUE`, it indicates that the simulation logic is functioning
+#' - If any check returns `FALSE`, it may indicate a problem in the simulation logic
+#'   (e.g., seed placement, incorrect reuse of `x`, or missing heteroscedasticity).
+#'
+sanity_check <- function(res) {
+  dat <- res$datasets
+  
+  # --- A) varies across reps within each c ---
+  vary_by_rep <- function(vec) {
+    # different group means across reps ⇒ variation
+    all(tapply(vec, list(dat$c, dat$rep), mean) |>
+          apply(1, function(v) length(unique(v)) > 1))
+  }
+  x_varies_within_c   <- vary_by_rep(dat$x)
+  eps_varies_within_c <- vary_by_rep(dat$eps)
+  y_varies_within_c   <- vary_by_rep(dat$y)
+  
+  # --- B) for each rep, x is identical across all c (vector-wise) ---
+  x_identical_across_c_per_rep <- {
+    by_rep <- split(dat, dat$rep)
+    all(vapply(by_rep, function(df_rep) {
+      xs <- split(df_rep$x, df_rep$c)
+      ref <- xs[[1]]
+      # compare element-wise identity to the first c
+      all(vapply(xs[-1], function(v) identical(as.numeric(v), as.numeric(ref)), logical(1)))
+    }, logical(1)))
+  }
+  
+  
+  # --- C) across c: eps/y variance differ (expected if heteroscedastic by c) ---
+  eps_var_diff_across_c <- length(unique(tapply(dat$eps, dat$c, var))) > 1
+  y_var_diff_across_c   <- length(unique(tapply(dat$y,   dat$c, var))) > 1
+  
+  cat("Sanity check:\n")
+  cat("  x varies across reps within each c:            ", x_varies_within_c,   "\n")
+  cat("  eps varies across reps within each c:          ", eps_varies_within_c, "\n")
+  cat("  y varies across reps within each c:            ", y_varies_within_c,   "\n")
+  cat("  x identical across c for each rep (elementwise): ", x_identical_across_c_per_rep, "\n")
+  cat("  eps variance differs across c:                 ", eps_var_diff_across_c, "\n")
+  cat("  y variance differs across c:                   ", y_var_diff_across_c,   "\n")
+}
+
+
+
 ## ================================
-## 2. Data Generation
+## 2. Data Generation & Simulation Loop
 ## ================================
-set.seed(seed)
-# Generate predictor values
-x <- runif(sample_size, x_min, x_max)
-set.seed(seed)
-data_homo <- get_data(c=0, x=x, params = params)
-set.seed(seed)
-data_hete1 <- get_data(c=8, x=x, params = params)
+res <- simulate_over_c(c_values = c_params, params = params, n_reps = 10, seed=seed)
 
 
 ## ================================
-## 3. Simulation Loop
+## 3. Sanity Check  
 ## ================================
+sanity_check(res)
 
-## ================================
-## 4. Summarize Results in Table
-## ================================
+
+
