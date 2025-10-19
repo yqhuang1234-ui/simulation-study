@@ -14,7 +14,7 @@ x_max <- 6
 eps_mean <- 0
 # heteroscedasticity parameters to simulate
 # when c=0, variance is 1 and it is homoscedastic baseline.
-c_params <- c(0, 1,10,200)
+c_params <- c(0, 20,25,30,40,50)
 # store parameters in a list for easy passing to functions
 params <- list(
   n = sample_size,
@@ -44,15 +44,11 @@ save_path <- "./data/"
 #'
 #' @return Numeric vector of conditional error variances for each x.
 get_eps_var <- function(x, c, a, b) {
-  if (c==0) {
-    return(1)
-  } else {
   mu <- (a + b) / 2
-  norm <- sinh((b - a) * c / 2) / ((b - a) * c / 2)
+  z  <- (b - a) * c / 2
+  norm <- if (abs(z) < 1e-6) 1 + z^2/6 + z^4/120 else sinh(z) / z
   eps_var <- exp(c * (x - mu)) / norm
-  return(eps_var)
   }
-}
 #-----------------------------------------------------------
 #' Simulate linear regression data with controllable heteroscedasticity
 #' 
@@ -375,8 +371,8 @@ c_slug <- paste0("c", paste(c_vals, collapse = "-"))
 param_suffix <- sprintf("n%d_reps%d_seed%s_%s", n, n_reps, seed_val, c_slug)
 
 # final filenames
-fits_rds      <- file.path(save_path, sprintf("%s_log-linear-fits_%s_%s.rds",      iso_date, experiment_tag, param_suffix))
-datasets_rds  <- file.path(save_path, sprintf("%s_log-linear-datasets_%s_%s.rds",  iso_date, experiment_tag, param_suffix))
+fits_rds      <- file.path(save_path, sprintf("%s_centered-log-linear-fits_%s_%s.rds",      iso_date, experiment_tag, param_suffix))
+datasets_rds  <- file.path(save_path, sprintf("%s_centered-log-linear-datasets_%s_%s.rds",  iso_date, experiment_tag, param_suffix))
 
 # save (RDS for fidelity + CSV for sharing)
 saveRDS(res$fits,     fits_rds)
