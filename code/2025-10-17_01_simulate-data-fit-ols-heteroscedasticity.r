@@ -14,7 +14,7 @@ x_max <- 6
 eps_mean <- 0
 # heteroscedasticity parameters to simulate
 # when c=0, variance is 1 and it is homoscedastic baseline.
-c_params <- c(0,  2, 5, 8, 10,15)
+c_params <- c(0, 1,10,200)
 # store parameters in a list for easy passing to functions
 params <- list(
   n = sample_size,
@@ -30,10 +30,6 @@ save_path <- "./data/"
 ## ================================
 ## 1. Function
 ## ================================
-get_unif_moments <- function(x_min, x_max){
-  expected_x2 <- (x_max^3 - x_min^3) / (3 * (x_max - x_min))
-  return(expected_x2)
-}
 #------------------------------------------------------------
 #' Compute error variance
 #'
@@ -47,10 +43,15 @@ get_unif_moments <- function(x_min, x_max){
 #' @param var_x Variance of the predictor distribution (e.g., uniform variance).
 #'
 #' @return Numeric vector of conditional error variances for each x.
-get_eps_var <- function(x, c, expected_x2) {
-  g <- x^2
-  eps_var <- (1 + c * g) / (1 + c * expected_x2)
+get_eps_var <- function(x, c, a, b) {
+  if (c==0) {
+    return(1)
+  } else {
+  mu <- (a + b) / 2
+  norm <- sinh((b - a) * c / 2) / ((b - a) * c / 2)
+  eps_var <- exp(c * (x - mu)) / norm
   return(eps_var)
+  }
 }
 #-----------------------------------------------------------
 #' Simulate linear regression data with controllable heteroscedasticity
@@ -98,13 +99,9 @@ get_data <- function(c, x, params, verbose=FALSE) {
   eps_mean <- params$eps_mean
   beta0 <- params$beta0
   beta1 <- params$beta1
-  # Pre-compute mean and variance of X ~ Uniform(x_min, x_max)
-  mean_x <- (x_min + x_max) / 2
-  var_x  <- (x_max - x_min)^2 / 12
   
   # Compute conditional error variance for each x
-  expected_x2 <- get_unif_moments(x_min, x_max)
-  eps_var <- get_eps_var(x, c, expected_x2)
+  eps_var <- get_eps_var(x, c, a=x_min, b=x_max)
   
   # Draw error terms
   eps <- rnorm(n, mean = eps_mean, sd = sqrt(eps_var))
@@ -378,8 +375,8 @@ c_slug <- paste0("c", paste(c_vals, collapse = "-"))
 param_suffix <- sprintf("n%d_reps%d_seed%s_%s", n, n_reps, seed_val, c_slug)
 
 # final filenames
-fits_rds      <- file.path(save_path, sprintf("%s_level-dependent-fits_%s_%s.rds",      iso_date, experiment_tag, param_suffix))
-datasets_rds  <- file.path(save_path, sprintf("%s_level-dependent-datasets_%s_%s.rds",  iso_date, experiment_tag, param_suffix))
+fits_rds      <- file.path(save_path, sprintf("%s_log-linear-fits_%s_%s.rds",      iso_date, experiment_tag, param_suffix))
+datasets_rds  <- file.path(save_path, sprintf("%s_log-linear-datasets_%s_%s.rds",  iso_date, experiment_tag, param_suffix))
 
 # save (RDS for fidelity + CSV for sharing)
 saveRDS(res$fits,     fits_rds)
