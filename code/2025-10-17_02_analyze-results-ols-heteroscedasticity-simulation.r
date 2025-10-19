@@ -1,57 +1,41 @@
-library(dplyr)
-path <- "~/Library/CloudStorage/Dropbox/School/CU/fall 2025/BIOS 6618 adv biostatistical method/midterm simulation/simulation-study/data"
-fits <- readRDS(paste0(path, '/2025-10-17_fits_ols-heteroscedasticity-simulation_n200_reps1000_seed1234_c0-0.5-1-2-4-8.rds'))
-tail(fits)
+## ================================
+## 0. Load needed packages and data
+## ================================
+# Helper function: install if not already available
+load_or_install <- function(pkg){
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg)
+  }
+  library(pkg, character.only = TRUE)
+}
+
+# List of needed packages
+packages <- c("dplyr", "ggplot2", "knitr", "kableExtra", "webshot2","magick")
+
+# Load or install each
+lapply(packages, load_or_install)
+
 true_beta <- 0.4
-library(dplyr)
+# Load simulation results
+path <- "~/Library/CloudStorage/Dropbox/School/CU/fall 2025/BIOS 6618 adv biostatistical method/midterm simulation/simulation-study"
+fits_file <- '/data/2025-10-18_fits_ols-heteroscedasticity-simulation_n50_reps1000_seed1234_c0-2-5-8-10.rds'
+fits <- readRDS(paste0(path, fits_file))
+# Extract parameter settings from filename for labeling outputs
+param_data <- sub(".*_(n[0-9].*).rds$", "\\1", basename(fits_file))
+message("Analyzing results for parameter settings: ", param_data)
+# "n200_reps1000_seed1234_c0-0.5-1-2-4-8"
 
-fits.grouped <- fits %>%
-  mutate(
-    covered = as.integer(true_beta >= ci_lower & true_beta <= ci_upper),
-    rejected = as.integer(p_value <= 0.05),
-    ci_width = ci_upper - ci_lower,
-    est_err  = beta1_hat - true_beta
-  ) %>%
-  group_by(c_param) %>%
-  summarise(
-    R = n(),  # number of replications
-    
-    # Point estimate quality
-    bias         = mean(est_err, na.rm = TRUE),
-    mcse_bias    = sd(est_err, na.rm = TRUE) / sqrt(R),
-    
-    sd_beta1_hat = sd(beta1_hat, na.rm = TRUE),
-    
-    # Reported SE
-    se_beta1_hat = mean(se, na.rm = TRUE),
-    mcse_se_mean = sd(se, na.rm = TRUE) / sqrt(R),
-    
-    # CI performance
-    ci_coverage  = mean(covered, na.rm = TRUE),
-    mcse_cov     = sqrt(ci_coverage * (1 - ci_coverage) / R),
-    
-    mean_ci_lower = mean(ci_lower, na.rm = TRUE),
-    mean_ci_upper = mean(ci_upper, na.rm = TRUE),
-    mean_ci_width = mean(ci_width, na.rm = TRUE),
-    mcse_ci_width = sd(ci_width, na.rm = TRUE) / sqrt(R),
-    
-    # Testing behavior
-    reject_rate  = mean(rejected, na.rm = TRUE),
-    mcse_reject  = sqrt(reject_rate * (1 - reject_rate) / R),
-    
-    .groups = "drop"
-  )
+# ISO 8601 date (date only):
+iso_date <- format(Sys.Date(), "%Y-%m-%d")
+save_results_path <- paste0(path,"/results/",iso_date)
 
-fits.grouped
-#------------------------
-#Plot results
-#------------------------
-# install.packages(c("dplyr","ggplot2","tidyr"))
-library(dplyr)
-library(tidyr)
-library(ggplot2)
+if (!dir.exists(save_results_path)) {
+  dir.create(save_results_path, recursive = TRUE)
+}
 
-# 1) Build per-c summary with MC-SEs
+## ================================
+## 1. Summarize results with MC-SEs
+## ================================
 fits_summ <- fits %>%
   mutate(
     covered   = as.integer(true_beta >= ci_lower & true_beta <= ci_upper),
@@ -84,15 +68,32 @@ fits_summ <- fits %>%
     
     .groups = "drop"
   )
+fits_summ
 
-library(dplyr)
-library(ggplot2)
+## ================================
+## 2. Create figure with metrics and 95% MC-SE error bars 
+## ================================
+# Create table with formatted metrics including MC-SEs
+fits_table <- fits_summ %>%
+  mutate(
+    bias          = sprintf("%.4f (±%.4f)", bias, mcse_bias),
+    sd_beta1_hat  = sprintf("%.4f (±%.4f)", sd_beta1_hat, mcse_sd_beta1),
+    se_beta1_hat  = sprintf("%.4f (±%.4f)", se_beta1_hat, mcse_se_mean),
+    ci_coverage   = sprintf("%.3f (±%.3f)", ci_coverage, mcse_cov),
+    reject_rate   = sprintf("%.3f (±%.3f)", reject_rate, mcse_reject)
+  ) %>%
+  select(c_param, bias, sd_beta1_hat, se_beta1_hat, ci_coverage, reject_rate)
 
-# fits_summ must already exist with these columns:
-# c_param, bias, mcse_bias, sd_beta1_hat, mcse_sd_beta1, 
-# se_beta1_hat, mcse_se_mean, ci_coverage, mcse_cov, 
-# reject_rate, mcse_reject
+# Create kable with new column labels (without touching fits_summ)
+tbl <- fits_table %>%
+  kable("html",
+        caption = "Simulation Results with Monte Carlo Standard Errors",
+  col.names = c("c", "Bias", "SD(β̂1)", "Mean SE", "Coverage", "Power")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                full_width = FALSE, position = "center")
 
+
+# Reshape data to long format for plotting
 metrics_long <- bind_rows(
   fits_summ %>% transmute(c_param, metric = "Bias",           est = bias,           mcse = mcse_bias),
   fits_summ %>% transmute(c_param, metric = "SD(β̂1)",        est = sd_beta1_hat,   mcse = mcse_sd_beta1),
@@ -106,11 +107,10 @@ metrics_long <- bind_rows(
     ref = case_when(
       metric == "Bias"         ~ 0,
       metric == "Coverage"     ~ 0.95,
-      metric == "Power" ~ 0.05,   
       TRUE ~ NA_real_
     ),
-    metric = factor(metric, levels = c("Bias","SD(β̂1)","Mean SE","Coverage","Power/Type I"))
-  )
+    metric = factor(metric, levels=c("Bias","SD(β̂1)","Mean SE","Coverage","Power")
+  ))
 
 p <- ggplot(metrics_long, aes(x = c_param, y = est)) +
   geom_hline(aes(yintercept = ref), linetype = "dashed", na.rm = TRUE) +
@@ -124,9 +124,14 @@ p <- ggplot(metrics_long, aes(x = c_param, y = est)) +
   ) +
   theme_minimal(base_size = 12)
 
-# Optional if c spans orders of magnitude:
-# p <- p + scale_x_continuous(trans = "log10", breaks = sort(unique(metrics_long$c_param)))
-
 print(p)
 
-
+## ================================
+## 3. Save results table and figure
+## ================================
+table_save <- paste0(save_results_path,"/01_table-simulation-results-mcse_",param_data,'.png')
+save_kable(tbl, table_save , zoom = 4, vwidth = 1000, vheight = 1200)
+plot_save <- paste0(save_results_path,"/02_plots-simulation-results-mcse_",param_data,'.png')
+ggsave(plot_save, plot = p, width = 8, height = 6, dpi = 500)
+message("Saved results table to: ", table_save,
+        "\nSaved results plot to: ", plot_save)

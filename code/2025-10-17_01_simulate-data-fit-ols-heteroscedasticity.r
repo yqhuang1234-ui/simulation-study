@@ -2,7 +2,7 @@
 ## 0. Setup
 ## ================================
 seed <- 1234
-sample_size <- 200
+sample_size <- 50
 n_reps <- 1000
 # true parameters of the linear model for data generation
 beta0 <- 14
@@ -14,7 +14,7 @@ x_max <- 6
 eps_mean <- 0
 # heteroscedasticity parameters to simulate
 # when c=0, variance is 1 and it is homoscedastic baseline.
-c_params <- c(0, 0.5, 1, 2, 4, 8)
+c_params <- c(0,  2, 5, 8, 10)
 # store parameters in a list for easy passing to functions
 params <- list(
   n = sample_size,
@@ -345,7 +345,7 @@ sanity_check <- function(res) {
 ## 2. Data Generation & Simulation Loop
 ## ================================
 res <- simulate_over_c(c_values = c_params, params = params, n_reps = n_reps, seed=seed)
-res$fits
+
 ## ================================
 ## 3. Sanity Check  
 ## ================================
