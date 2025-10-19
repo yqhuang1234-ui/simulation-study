@@ -14,7 +14,9 @@ x_max <- 6
 eps_mean <- 0
 # heteroscedasticity parameters to simulate
 # when c=0, variance is 1 and it is homoscedastic baseline.
-c_params <- c(0, 20,25,30,40,50)
+c_params <- c(0,0.4,1,10,20,30)
+dist_option <- "mixture"  # distribution of X
+skew_strength <- 5
 # store parameters in a list for easy passing to functions
 params <- list(
   n = sample_size,
@@ -22,7 +24,9 @@ params <- list(
   x_max = x_max,
   eps_mean = eps_mean,
   beta0 = beta0,
-  beta1 = beta1
+  beta1 = beta1,
+  dist_option = dist_option,
+  skew_strength = skew_strength
 )
 # path to save results
 save_path <- "./data/"
@@ -30,6 +34,51 @@ save_path <- "./data/"
 ## ================================
 ## 1. Function
 ## ================================
+sample_x <- function(n, x_min , x_max,
+                     dist = c("uniform","right_skew","left_skew",
+                              "mixture","two_point","wider"),
+                     skew_strength = 2,   # larger -> more skew for Beta
+                     gap = 0.3) {         # gap around the middle for mixture
+  dist <- match.arg(dist)
+  
+  to_range <- function(z) x_min + (x_max - x_min) * z
+  
+  if (dist == "uniform") {
+    x <- runif(n, x_min, x_max)
+    
+  } else if (dist == "right_skew") {
+    # more mass near the HIGH end (x ≈ x_max)
+    # Beta(a, b) with a > b piles mass near 1
+    a <- skew_strength; b <- 1
+    x <- to_range(rbeta(n, shape1 = a, shape2 = b))
+    
+  } else if (dist == "left_skew") {
+    # more mass near the LOW end (x ≈ x_min)
+    a <- 1; b <- skew_strength
+    x <- to_range(rbeta(n, shape1 = a, shape2 = b))
+    
+  } else if (dist == "mixture") {
+    # half low range, half high range, leaving a gap around the middle
+    mid <- (x_min + x_max) / 2
+    u <- runif(n)
+    lo <- runif(n, x_min, pmax(x_min, mid - gap))
+    hi <- runif(n, pmin(x_max, mid + gap), x_max)
+    x <- ifelse(u < 0.5, lo, hi)
+    
+  } else if (dist == "two_point") {
+    # extreme leverage at the endpoints
+    x <- ifelse(runif(n) < 0.5, x_min, x_max)
+    
+  } else if (dist == "wider") {
+    # widen the range to increase leverage (then rescale back, optional)
+    x <- runif(n, x_min - (x_max - x_min)/2, x_max + (x_max - x_min)/2)
+    # rescale back to original range to keep Var(X) comparable:
+    x <- scales::rescale(x, to = c(x_min, x_max))
+  }
+  
+  x
+}
+
 #------------------------------------------------------------
 #' Compute error variance
 #'
@@ -44,11 +93,11 @@ save_path <- "./data/"
 #'
 #' @return Numeric vector of conditional error variances for each x.
 get_eps_var <- function(x, c, a, b) {
-  mu <- (a + b) / 2
-  z  <- (b - a) * c / 2
-  norm <- if (abs(z) < 1e-6) 1 + z^2/6 + z^4/120 else sinh(z) / z
-  eps_var <- exp(c * (x - mu)) / norm
-  }
+  mu   <- mean(x)
+  m    <- exp(c * (x - mu))
+  eps_var <- m / mean(m)   # ensures average conditional variance multiplier = 1
+  return(eps_var)
+}
 #-----------------------------------------------------------
 #' Simulate linear regression data with controllable heteroscedasticity
 #' 
@@ -179,7 +228,9 @@ fit_lm <- function(dat, verbose=FALSE) {
     p_value = pval,
     n = n,
     r_squared = r2,
-    c_param = unique(dat$c_param)
+    c_param = unique(dat$c_param),
+    beta1_true = params$beta1,
+    beta0_true = params$beta0
   )
   if (verbose){
     message("model run successfully")
@@ -227,7 +278,8 @@ simulate_over_c <- function(c_values, params, n_reps, seed = NULL) {
 
   for (r in seq_len(n_reps)) {
     # for each rep, generate x once. x is same across all c but different across reps
-    x_rep <- runif(n, min = x_min, max = x_max)
+    # pick a distribution for X:
+    x_rep <- sample_x(n, x_min, x_max, dist = params$dist_option, skew_strength = params$skew_strength)
     # for each c, generate data using same x_rep
     for (j in seq_along(c_values)) {
       c_val <- c_values[j]
@@ -371,8 +423,8 @@ c_slug <- paste0("c", paste(c_vals, collapse = "-"))
 param_suffix <- sprintf("n%d_reps%d_seed%s_%s", n, n_reps, seed_val, c_slug)
 
 # final filenames
-fits_rds      <- file.path(save_path, sprintf("%s_centered-log-linear-fits_%s_%s.rds",      iso_date, experiment_tag, param_suffix))
-datasets_rds  <- file.path(save_path, sprintf("%s_centered-log-linear-datasets_%s_%s.rds",  iso_date, experiment_tag, param_suffix))
+fits_rds      <- file.path(save_path, sprintf("%s_mixture-fits_%s_%s.rds",      iso_date, experiment_tag, param_suffix))
+datasets_rds  <- file.path(save_path, sprintf("%s_mixture-datasets_%s_%s.rds",  iso_date, experiment_tag, param_suffix))
 
 # save (RDS for fidelity + CSV for sharing)
 saveRDS(res$fits,     fits_rds)
