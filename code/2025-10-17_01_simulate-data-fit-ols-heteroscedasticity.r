@@ -14,7 +14,7 @@ x_max <- 6
 eps_mean <- 0
 # heteroscedasticity parameters to simulate
 # when c=0, variance is 1 and it is homoscedastic baseline.
-c_params <- c(0, 20,25,30,40,50)
+c_params <- c(0, 0.4, 1, 2, 3, 4, 6, 8)
 # store parameters in a list for easy passing to functions
 params <- list(
   n = sample_size,
@@ -47,7 +47,9 @@ get_eps_var <- function(x, c, a, b) {
   mu <- (a + b) / 2
   z  <- (b - a) * c / 2
   norm <- if (abs(z) < 1e-6) 1 + z^2/6 + z^4/120 else sinh(z) / z
-  eps_var <- exp(c * (x - mu)) / norm
+  eps_var_norm <- ifelse(c == 0, 1,exp(c * (x - mu)) / norm)
+  eps_var_unnorm <- ifelse(c == 0, 1, exp(c * (x - mu)))
+  return(list(eps_var_norm = eps_var_norm, eps_var_unnorm = eps_var_unnorm))
   }
 #-----------------------------------------------------------
 #' Simulate linear regression data with controllable heteroscedasticity
@@ -97,13 +99,17 @@ get_data <- function(c, x, params, verbose=FALSE) {
   beta1 <- params$beta1
   
   # Compute conditional error variance for each x
-  eps_var <- get_eps_var(x, c, a=x_min, b=x_max)
+  eps_var_all <- get_eps_var(x, c, a=x_min, b=x_max)
+  eps_var <- eps_var_all$eps_var_norm
+  eps_var_unnorm <- eps_var_all$eps_var_unnorm
   
   # Draw error terms
   eps <- rnorm(n, mean = eps_mean, sd = sqrt(eps_var))
+  eps_unnorm <- rnorm(n, mean=eps_mean, sd=sqrt(eps_var_unnorm))
   
   # Generate response variable
   y <- beta0 + beta1 * x + eps
+  y_unnorm <- beta0 + beta1 * x + eps_unnorm
   
   # Return dataset
   data <- data.frame(
@@ -111,7 +117,10 @@ get_data <- function(c, x, params, verbose=FALSE) {
     y = y,
     c_param = c,   # renamed for clarity
     eps = eps,
-    eps_var = eps_var
+    eps_var = eps_var,
+    y_unnorm = y_unnorm,
+    eps_unnorm = eps_unnorm,
+    eps_var_unnorm = eps_var_unnorm
   )
   params = data.frame(
       c = c, n = n, x_min = x_min, x_max = x_max, x_bar=mean(x), sample_var_x=var(x),
@@ -179,7 +188,9 @@ fit_lm <- function(dat, verbose=FALSE) {
     p_value = pval,
     n = n,
     r_squared = r2,
-    c_param = unique(dat$c_param)
+    c_param = unique(dat$c_param),
+    beta1_true = params$beta1,
+    beta0_true = params$beta0
   )
   if (verbose){
     message("model run successfully")
@@ -371,8 +382,8 @@ c_slug <- paste0("c", paste(c_vals, collapse = "-"))
 param_suffix <- sprintf("n%d_reps%d_seed%s_%s", n, n_reps, seed_val, c_slug)
 
 # final filenames
-fits_rds      <- file.path(save_path, sprintf("%s_centered-log-linear-fits_%s_%s.rds",      iso_date, experiment_tag, param_suffix))
-datasets_rds  <- file.path(save_path, sprintf("%s_centered-log-linear-datasets_%s_%s.rds",  iso_date, experiment_tag, param_suffix))
+fits_rds      <- file.path(save_path, sprintf("%s_best-centered-log-linear-fits_%s_%s.rds",      iso_date, experiment_tag, param_suffix))
+datasets_rds  <- file.path(save_path, sprintf("%s_best-centered-log-linear-datasets_%s_%s.rds",  iso_date, experiment_tag, param_suffix))
 
 # save (RDS for fidelity + CSV for sharing)
 saveRDS(res$fits,     fits_rds)
@@ -381,3 +392,22 @@ saveRDS(res$datasets, datasets_rds)
 message("Results saved successfully:\n",
         "  - ", fits_rds, "\n",
         "  - ", datasets_rds, "\n")
+
+library(dplyr)
+goup_reps <- res$datasets %>%
+  group_by(rep, c_param) %>%
+  summarise(
+    var_y = var(y),
+    var_eps_var = var(eps_var),
+    var_y_unnorm = var(y_unnorm),
+    var_eps_var_unnorm = var(eps_var_unnorm),
+    .groups = "drop")
+
+group_reps %>%
+  group_by(c_param) %>%
+  summarise(
+    var_y = mean(var_y),
+    var_eps_var = mean(var_eps_var),
+    var_y_unnorm = mean(var_y_unnorm),
+    var_eps_var_unnorm = mean(var_eps_var_unnorm),
+    .groups = "drop")

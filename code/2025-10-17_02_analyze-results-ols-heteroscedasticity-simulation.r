@@ -15,15 +15,15 @@ packages <- c("dplyr", "ggplot2", "knitr", "kableExtra", "webshot2","magick")
 # Load or install each
 lapply(packages, load_or_install)
 
-true_beta <- 0.4
+
 # Load simulation results
 path <- "~/Library/CloudStorage/Dropbox/School/CU/fall 2025/BIOS 6618 adv biostatistical method/midterm simulation/simulation-study"
-fits_file <- '/data/2025-10-18_centered-log-linear-fits_ols-heteroscedasticity-simulation_n100_reps1000_seed1234_c0-10-15-20.rds'
+fits_file <- '/data/2025-10-20_best-centered-log-linear-fits_ols-heteroscedasticity-simulation_n100_reps3000_seed1234_c0-0.4-1-2-3-4-6-8.rds'
 fits <- readRDS(paste0(path, fits_file))
 # Extract parameter settings from filename for labeling outputs
 param_data <- sub(".*_(n[0-9].*).rds$", "\\1", basename(fits_file))
 message("Analyzing results for parameter settings: ", param_data)
-# "n200_reps1000_seed1234_c0-0.5-1-2-4-8"
+true_beta <- unique(fits$beta1_true)
 
 # ISO 8601 date (date only):
 iso_date <- format(Sys.Date(), "%Y-%m-%d")
@@ -129,9 +129,9 @@ print(p)
 ## ================================
 ## 3. Save results table and figure
 ## ================================
-table_save <- paste0(save_results_path,"/01_centered-log-linear-table-simulation-results-mcse_",param_data,'.png')
+table_save <- paste0(save_results_path,"/01_best-centered-log-linear-table-simulation-results-mcse_",param_data,'.png')
 save_kable(tbl, table_save , zoom = 4, vwidth = 1000, vheight = 1200)
-plot_save <- paste0(save_results_path,"/02_centered-log-linear-plots-simulation-results-mcse_",param_data,'.png')
+plot_save <- paste0(save_results_path,"/02_best-centered-log-linear-plots-simulation-results-mcse_",param_data,'.png')
 ggsave(plot_save, plot = p, width = 8, height = 6, dpi = 500)
 message("Saved results table to: ", table_save,
         "\nSaved results plot to: ", plot_save)
