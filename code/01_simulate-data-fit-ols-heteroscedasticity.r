@@ -44,13 +44,33 @@ save_path <- "./data/"
 #'
 #' @return Numeric vector of conditional error variances for each x.
 get_eps_var <- function(x, c, a, b) {
+  # midpoint of the interval
   mu <- (a + b) / 2
-  z  <- (b - a) * c / 2
-  norm <- if (abs(z) < 1e-6) 1 + z^2/6 + z^4/120 else sinh(z) / z
-  eps_var_norm <- ifelse(c == 0, 1,exp(c * (x - mu)) / norm)
-  eps_var_unnorm <- ifelse(c == 0, 1, exp(c * (x - mu)))
-  return(list(eps_var_norm = eps_var_norm, eps_var_unnorm = eps_var_unnorm))
+  
+  # scaling term z
+  z <- (b - a) * c / 2
+  
+  # Normalization factor = E[exp(c(X - mu))] under X ~ Unif[a,b]
+  # = sinh(z)/z, with Taylor expansion for numerical stability when z ~ 0
+  norm <- if (abs(z) < 1e-6) {
+    1 + z^2/6 + z^4/120   # approximation of sinh(z)/z
+  } else {
+    sinh(z) / z
   }
+  
+  # Normalized variance: divides by norm so average variance = 1
+  eps_var_norm <- exp(c * (x - mu)) / norm
+  
+  # Unnormalized variance: grows/shrinks with c, no normalization
+  eps_var_unnorm <- exp(c * (x - mu))
+  
+  # Return both versions
+  return(list(
+    eps_var_norm   = eps_var_norm,
+    eps_var_unnorm = eps_var_unnorm
+  ))
+}
+
 #-----------------------------------------------------------
 #' Simulate linear regression data with controllable heteroscedasticity
 #' 
@@ -393,21 +413,4 @@ message("Results saved successfully:\n",
         "  - ", fits_rds, "\n",
         "  - ", datasets_rds, "\n")
 
-library(dplyr)
-goup_reps <- res$datasets %>%
-  group_by(rep, c_param) %>%
-  summarise(
-    var_y = var(y),
-    var_eps_var = var(eps_var),
-    var_y_unnorm = var(y_unnorm),
-    var_eps_var_unnorm = var(eps_var_unnorm),
-    .groups = "drop")
 
-group_reps %>%
-  group_by(c_param) %>%
-  summarise(
-    var_y = mean(var_y),
-    var_eps_var = mean(var_eps_var),
-    var_y_unnorm = mean(var_y_unnorm),
-    var_eps_var_unnorm = mean(var_eps_var_unnorm),
-    .groups = "drop")

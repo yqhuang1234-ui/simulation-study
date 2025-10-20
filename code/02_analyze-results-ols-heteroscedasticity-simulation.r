@@ -17,9 +17,11 @@ lapply(packages, load_or_install)
 
 
 # Load simulation results
-path <- "~/Library/CloudStorage/Dropbox/School/CU/fall 2025/BIOS 6618 adv biostatistical method/midterm simulation/simulation-study"
-fits_file <- '/data/2025-10-20_best-centered-log-linear-fits_ols-heteroscedasticity-simulation_n100_reps3000_seed1234_c0-0.4-1-2-3-4-6-8.rds'
+path <- "~/Library/CloudStorage/Dropbox/School/CU/fall 2025/BIOS 6618 adv biostatistical method/midterm simulation/simulation-study/"
+fits_file <- '/data/2025-10-20_best-centered-log-linear-fits_ols-heteroscedasticity-simulation_n100_reps1000_seed1234_c0-0.4-1-2-3-4-6-8.rds'
+simulated_data_file <- '/data/2025-10-20_best-centered-log-linear-datasets_ols-heteroscedasticity-simulation_n100_reps1000_seed1234_c0-0.4-1-2-3-4-6-8.rds'
 fits <- readRDS(paste0(path, fits_file))
+simulated_data <- readRDS(paste0(path, simulated_data_file))
 # Extract parameter settings from filename for labeling outputs
 param_data <- sub(".*_(n[0-9].*).rds$", "\\1", basename(fits_file))
 message("Analyzing results for parameter settings: ", param_data)
@@ -36,6 +38,19 @@ if (!dir.exists(save_results_path)) {
 ## ================================
 ## 1. Summarize results with MC-SEs
 ## ================================
+library(dplyr)
+# Summarize datasets to check variances
+average_error_variance <- simulated_data %>%
+  group_by(c_param) %>%
+  summarise(
+    var_y = var(y),                        # variance of Y
+    mean_eps_var = mean(eps_var),          # average error variance (should be ~1 if normalized)
+    var_y_unnorm = var(y_unnorm),          
+    mean_eps_var_unnorm = mean(eps_var_unnorm), 
+    .groups = "drop"
+  )
+
+#
 fits_summ <- fits %>%
   mutate(
     covered   = as.integer(true_beta >= ci_lower & true_beta <= ci_upper),
@@ -135,3 +150,4 @@ plot_save <- paste0(save_results_path,"/02_best-centered-log-linear-plots-simula
 ggsave(plot_save, plot = p, width = 8, height = 6, dpi = 500)
 message("Saved results table to: ", table_save,
         "\nSaved results plot to: ", plot_save)
+average_error_variance
