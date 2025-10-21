@@ -1,0 +1,180 @@
+---
+output:
+  bookdown::pdf_document2:
+    toc: false
+    number_sections: false
+documentclass: article
+geometry: margin=0.95in
+classoption:
+- twocolumn
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#bibliography: kaizer_simulation_sample1.bib
+#csl: alex_vancouver.csl
+install.packages("webshot2", repos = "https://cloud.r-project.org/")
+library(webshot2) # load for saving tables as images
+
+library(kableExtra) # load for tables
+# Helper function: install if not already available
+load_or_install <- function(pkg){
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg)
+  }
+  library(pkg, character.only = TRUE)
+}
+
+# List of needed packages
+packages <- c("dplyr", "ggplot2", "knitr", "kableExtra", "webshot2","magick")
+
+# Load or install each
+lapply(packages, load_or_install)
+
+
+# Load simulation results
+path <- "~/Library/CloudStorage/Dropbox/School/CU/fall 2025/BIOS 6618 adv biostatistical method/midterm simulation/simulation-study/"
+fits_file <- '/data/2025-10-20_best-centered-log-linear-fits_ols-heteroscedasticity-simulation_n100_reps1000_seed1234_c0-0.4-1-2-3-4-6-8.rds'
+simulated_data_file <- '/data/2025-10-20_best-centered-log-linear-datasets_ols-heteroscedasticity-simulation_n100_reps1000_seed1234_c0-0.4-1-2-3-4-6-8.rds'
+fits <- readRDS(paste0(path, fits_file))
+fits <- fits %>%
+  filter(c_param %in% c(0, 2, 4, 6))  # Ensure only desired c_param values are included
+simulated_data <- readRDS(paste0(path, simulated_data_file))
+# Extract parameter settings from filename for labeling outputs
+param_data <- sub(".*_(n[0-9].*).rds$", "\\1", basename(fits_file))
+message("Analyzing results for parameter settings: ", param_data)
+true_beta <- unique(fits$beta1_true)
+
+# ISO 8601 date (date only):
+iso_date <- format(Sys.Date(), "%Y-%m-%d")
+save_results_path <- paste0(path,"/results/",iso_date)
+
+if (!dir.exists(save_results_path)) {
+  dir.create(save_results_path, recursive = TRUE)
+}
+
+## ================================
+## 1. Summarize results with MC-SEs
+## ================================
+```
+
+<!-- Title here: -->
+
+# \textit{How does violating homoscedasticity affect inference in linear regression?}
+
+<!-- Name here: -->
+
+Yanqi Huang, MS Student[^1]
+
+[^1]: Department of Biostatistics and Informatics, Colorado School of Public Health, University of Colorado Anschutz Medical Campus, Aurora, CO
+
+## Abstract
+
+Ordinary least squares (OLS) regression relies on the assumption of constant error variance. This simulation study shows that while OLS estimates remain unbiased under heteroscedasticity, model-based standard errors underestimate true variability, leading to confidence intervals with poor coverage. These results highlight the need to account for heteroscedasticity to ensure valid inference.
+
+## Introduction
+
+Ordinary least squares (OLS) regression is widely used to explore relationships between explanatory factors and an outcome variable. For example, in biomedical research, it is often applied to assess associations between risk factors and health outcomes. The key assumptions of OLS include linearity, normality of errors, and homoscedasticity. The purpose of this study is to evaluate how heteroscedasticity affects inference in OLS regression using a simulation study.
+
+## Motivating Problem
+
+In practice, the assumption of homoscedasticity is frequently overlooked when fitting linear regression models. However, violations of this assumption can have a greater impact on the validity of regression results than violations of normality [1]. This simulation study examines how varying degrees of heteroscedasticity affect the bias, model-based standard error(SE), empirical standard error, their relative error and confidence interval (CI) coverage in ordinary OLS regression.
+
+## Simulation Set-Up
+
+To evaluate how key performance metrics vary under increasing heteroscedasticity, the simulation was designed as follows:
+
+1.  The predictor $x_i$ is generated from a uniform distribution $x_i \sim \text{Uniform}(1, 6)$ with a sample size of $n = 100$ [2].
+
+2.  The error term $\varepsilon_i$ is generated as: ($\mu_x$ is the mean of $x$)
+
+    $$
+    \varepsilon_i \sim \mathcal{N}\!\left(0,\;
+    \frac{\exp\{c(x_i - \mu_x)\}}
+    {\mathbb{E}\!\left[\exp\{c(x_i - \mu_x)\}\right]}\right)
+    $$
+
+    -   $c=0$: The variance simplifies to $1$ for all $x_i$, giving the homoscedastic baseline$$
+        \varepsilon_i \sim \mathcal{N}(0,1)
+        $$
+
+    -   $c>0$: The variance becomes a non-constant function of $x_i$, introducing heteroscedasticity. Larger values of $c$ correspond to stronger heteroscedasticity. In this study, we simulate using $c \in \{2,4,6\}$.
+
+3.  The response variable is defined as\
+    $$
+    y_i = 14 + 0.4x_i + \varepsilon_i
+    $$ with the true slope $\beta_1 = 0.4$ [2].
+
+4.  Each scenario is replicated 1000 times, consistent with the average number of iterations used in previous studies [2].
+
+To introduce heteroscedasticity, the error variance is modeled as a function of $x$, with larger values of $c$ producing more uneven variability across $x$. Without adjustment, both the average error variance $\mathbb{E}[\operatorname{Var}(\varepsilon_i)]$ and the variance of the outcome $y$ increase as $c$ grows, confounding the effect of heteroscedasticity with overall noise. To address this, the variance function is normalized by $\mathbb{E}[\exp\{c(x_i - \mu_x)\}]$, which fixes the average error variance at $1$. This normalization isolates the impact of heteroscedasticity itself while keeping the total noise level constant, allowing fair comparison between homoscedastic and heteroscedastic settings.
+
+```{r chunk-name, fig.cap="Table 1 ", echo=F}
+library(dplyr)
+# Summarize datasets to check variances
+average_error_variance <- simulated_data %>%
+  filter(c_param %in% c(0, 2, 4, 6)) %>%
+  group_by(c_param) %>%
+  summarise(
+    var_y = round(var(y),0),                        # variance of Y
+    mean_eps_var = round(mean(eps_var),0),          # average
+    var_y_unnorm = round(var(y_unnorm),0),          
+    mean_eps_var_unnorm = round(mean(eps_var_unnorm), 0),
+    .groups = "drop"
+  )
+library(knitr)
+library(kableExtra)
+
+average_error_variance %>%
+  kbl(
+    booktabs = TRUE,
+    digits = 0,
+    col.names = c("c", "Var(Y)", "Mean error variance", 
+                  "Var(Y) unnormalized", "Mean error variance unnormalized")
+  ) %>%
+  kable_styling(latex_options = c("HOLD_position", "striped", "scale_down"))
+```
+
+The results will be presented graphically across the grid of $c$ values and summarized in a table showing the bias, model-based SE, empirical SE, relative error in model SE and CI coverage of $\hat{\beta}_1$.
+
+## Results
+
+Figure 1 summarizes the effect of increasing heteroscedasticity(parameter c) on the estimation of $\hat{\beta}_1$, with 95% Monte Carlo confidence intervals. Across all values of c, the bias remained close to zero, confirming that OLS produced unbiased slope estimates. In contrast, the variability metrics showed divergent patterns: the empirical standard error increased steadily from 0.069 under homoscedasticity (c=0) to 0.111 at c=6, while the model-based standard error decreased slightly from 0.070 to 0.066. This discrepancy led to progressively larger underestimation of variability, with the relative error in the model-based standard error reaching -40.9% at c=6. Consequently, confidence interval coverage declined from near the nominal 95% (94.4%) under homoscedasticity to only 76.5% under strong heteroscedasticity.
+
+![Metrics with 95% Monte Carlo Confidence Intervals across Levels of Heteroscedasticity (c)](~/Library/CloudStorage/Dropbox/School/CU/fall%202025/BIOS%206618%20adv%20biostatistical%20method/midterm%20simulation/simulation-study//results/2025-10-21/02_best-centered-log-linear-plots-simulation-results-mcse_n100_reps1000_seed1234_c0-0.4-1-2-3-4-6-8.png){width="100%"}
+
+Table 1 provides the detailed numerical results corresponding to Figure 1, including point estimates with Monte Carlo standard errors. The table highlights that bias was consistently negligible, with all estimates within ±0.004. However, empirical standard errors grew substantially larger than their model-based counterparts as heteroscedasticity increased. For example, at c=6 the empirical standard error was 0.111 (±0.002) compared to a model-based standard error of only 0.066 (±0.001). This mismatch explains the sharp decline in confidence interval coverage, which fell nearly 20 percentage points below the nominal level.
+
+![Simulation Results with Monte Carlo Standard Errors Values shown are point estimates (± Monte Carlo SE).](~/Library/CloudStorage/Dropbox/School/CU/fall%202025/BIOS%206618%20adv%20biostatistical%20method/midterm%20simulation/simulation-study//results/2025-10-21/01_best-centered-log-linear-table-simulation-results-mcse_n100_reps1000_seed1234_c0-0.4-1-2-3-4-6-8.png){width="100%"}
+
+## Conclusion
+
+These simulation results suggest that although OLS slope estimates remain unbiased under heteroscedasticity, inference based on model-based standard errors is unreliable. As shown in Figure 1 and Table 1, empirical variability increased as heteroscedasticity strengthened, while model-based standard errors decreased slightly. This mismatch produced confidence intervals with substantially reduced coverage, dropping nearly 20 percentage points below the nominal level under strong heteroscedasticity.
+
+This indicates that when the underlying data are heteroscedastic, traditional OLS-based inference is unreliable. In particular, researchers relying on nominal confidence intervals may draw overly optimistic conclusions about the precision of their estimates. In practice, robust alternatives such as heteroscedasticity-consistent standard errors or alternative modeling approaches should be used to ensure valid inference.
+
+There are limitations to this study. Only one covariate distribution, a fixed sample size, and a single form of heteroscedasticity were examined. Future work could investigate other covariate distributions, larger sample sizes, and different error variance structures.
+
+Careful consideration of error variance assumptions is critical in regression analysis, as violations can lead to misleadingly narrow confidence intervals and incorrect scientific conclusions.
+
+<!-- The code below creates a new page with a single column for your references and code used in the manuscript -->
+
+\newpage
+\onecolumn
+
+## References
+
+\vspace{2mm}
+
+<!-- Remove the following line of code if not using a .bib file to generate references -->
+
+::: {#refs}
+:::
+
+## Code Appendix
+
+<!-- The following code pulls all your code chunks from the paper and puts them here at the end (so you can keep "echo=F" in the code chunks above but they still appear here) -->
+
+```{r, ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+
+```
