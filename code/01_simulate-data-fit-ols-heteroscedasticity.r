@@ -14,7 +14,7 @@ x_max <- 6
 eps_mean <- 0
 # heteroscedasticity parameters to simulate
 # when c=0, variance is 1 and it is homoscedastic baseline.
-c_params <- c(0,2,4,6)
+c_params <- c(0,0.4,1,6)
 # store parameters in a list for easy passing to functions
 params <- list(
   n = sample_size,
