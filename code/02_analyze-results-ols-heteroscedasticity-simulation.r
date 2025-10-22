@@ -47,6 +47,10 @@ average_error_variance <- simulated_data %>%
     mean_eps_var_unnorm = round(mean(eps_var_unnorm), 0),
     .groups = "drop"
   )
+average_error_variance <- average_error_variance %>%
+  mutate(c_param = ifelse(c_param %% 1 == 0, 
+                          as.character(as.integer(c_param)), 
+                          as.character(c_param)))
 
 # Summarize simulation results with MC-SEs
 fits_summ <- fits %>%
@@ -93,16 +97,28 @@ fits_summ <- fits %>%
 ## ================================
 ## 2. Create figure with metrics and 95% MC-SE error bars 
 ## ================================
-# create variance table
-variance_table <- average_error_variance %>%
+average_error_variance |>
   kbl(
     booktabs = TRUE,
-    digits = 0,
-    col.names = c("c", "Var(Y) normalized", "Mean error variance normalized", 
-                  "Var(Y) unnormalized", "Mean error variance unnormalized")
-  ) %>%
-  kable_styling(latex_options = c("HOLD_position", "striped", "scale_down"))
-variance_table
+    escape   = FALSE,
+    digits   = c(0, 3, 3, 3, 3),
+    col.names = c(
+      "$c$",
+      "$\\mathrm{Var}(Y)$",
+      "$\\mathbb{E}[\\mathrm{Var}(\\varepsilon\\mid X)]$",
+      "$\\mathrm{Var}(Y)$",
+      "$\\mathbb{E}[\\mathrm{Var}(\\varepsilon\\mid X)]$"
+    ),
+    caption = "Variance of $Y$ and expected error variance $\\mathbb{E}[\\mathrm{Var}(\\varepsilon\\mid X)]$ across heteroscedasticity levels ($c$): normalized vs. unnormalized."
+  ) |>
+  add_header_above(c(" " = 1, "Normalized" = 2, "Unnormalized" = 2)) |>
+  kable_styling(
+    latex_options = c("HOLD_position","striped","scale_down"),
+    full_width    = FALSE,
+    position      = "center",
+    font_size     = 10
+  )
+
 #-----------------------------------------------------
 # Create table with formatted metrics including MC-SEs
 ## 1) Find rows using numeric values from fits_summ
@@ -145,8 +161,46 @@ tbl <- fits_table_fmt %>%
                 full_width = FALSE, position = "center")
 
 tbl
+#---------------no bold version for knit----------------
+# Regular kbl table for PDF (no bold/HTML)
+tbl2 <- kbl(
+  fits_table,
+  caption   = "Simulation results for OLS regression under heteroscedasticity",
+  booktabs  = TRUE,
+  align     = "cc",
+  col.names = c("c", "Bias", "Model SE", "Empirical SE",
+                "Relative error in model SE (%)", "CI Coverage (%)")
+) %>%
+  kable_styling(latex_options = c("HOLD_position","scale_down"),
+                full_width    = FALSE,
+                position      = "center",
+                font_size     = 20)
 
-#-----------------------------------------------------
+tbl2
+#-----------------------------------------------
+tbl2 <- kbl(
+  fits_table,
+  caption   = "Simulation results for OLS regression under heteroscedasticity",
+  booktabs  = TRUE,
+  align     = "cc",
+  col.names = c(
+    "c", 
+    "Bias", 
+    "\\makecell{Model\\\\SE (\\%)}", 
+    "\\makecell{Empirical\\\\SE (\\%)}", 
+    "\\makecell{Relative\\\\error in\\\\model SE (\\%)}", 
+    "\\makecell{CI\\\\Coverage (\\%)}"
+  ),
+  escape = FALSE   # allow LaTeX code inside names
+) %>%
+  kable_styling(
+    latex_options = c("HOLD_position"),
+    full_width    = FALSE,
+    position      = "center",
+    font_size     = 7
+  )
+tbl2
+-----------------------------------------------------
 # Create figure with metrics and 95% MC-SE confidence intervals
 # Long data + factor levels + ref lines
 metrics_long <- bind_rows(
@@ -202,8 +256,11 @@ p <- ggplot(metrics_long, aes(x = c_param, y = est)) +
   # facet-specific y-limit for Model SE
   ggh4x::facetted_pos_scales(
     y = list(
-      metric == "Model SE" ~ scale_y_continuous(limits = c(0.02, 0.072)),
-      metric == "Bias" ~ scale_y_continuous(limits = c(-0.02, 0.02))
+      metric == "Model SE" ~ scale_y_continuous(limits = c(0.02, 0.082)),
+      metric == "Bias" ~ scale_y_continuous(limits = c(-0.02, 0.02)),
+      metric == "Coverage(%)" ~ scale_y_continuous(limits = c(60, 100)),
+      metric == "Empirical SE" ~ scale_y_continuous(limits = c(0.05, 0.12)),
+      metric == "Relative Error in Model SE (%)" ~ scale_y_continuous(limits = c(5, -50))
     )
   ) +
   labs(
@@ -228,7 +285,7 @@ p
 # 3) Residual vs y_hat subplots (one panel per c_param)
 my_labels <- c(
   "0" = "c = 0 (Homoscedastic)",
-  "0.4" = "c = 0.4 (Mild Heteroscedasticity)",
+  "0.3" = "c = 0.3 (Mild Heteroscedasticity)",
   "1" = "c = 1 (Moderate Heteroscedasticity)",
   "6" = "c = 6 (Strong Heteroscedasticity)"
 )
