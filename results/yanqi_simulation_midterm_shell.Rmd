@@ -74,7 +74,7 @@ Ordinary least squares (OLS) regression relies on the assumption of constant err
 
 ## Introduction
 
-Ordinary least squares (OLS) regression is widely used to explore relationships between explanatory factors and an outcome variable. For example, in biomedical research, it is often applied to assess associations between risk factors and health outcomes. The key assumptions of OLS include linearity, normality of errors, and homoscedasticity. The purpose of this study is to evaluate how heteroscedasticity affects inference in OLS regression using a simulation study.
+Ordinary least squares (OLS) regression is widely used to explore relationships between explanatory factors and an outcome variable. For example, in biomedical research, it is often applied to assess associations between risk factors and health outcomes. The key assumptions of OLS include linearity, normality of errors, and homoscedasticity. The purpose of this study is to evaluate how different level of heteroscedasticity affects inference in OLS regression using a simulation study.
 
 ## Motivating Problem
 
@@ -86,13 +86,15 @@ To evaluate how key performance metrics vary under increasing heteroscedasticity
 
 1.  The predictor $x_i$ is generated from a uniform distribution $x_i \sim \text{Uniform}(1, 6)$ with a sample size of $n = 100$ [2].
 
-2.  The error term $\varepsilon_i$ is generated as: ($\mu_x$ is the mean of $x$)
+2.  The error term $\varepsilon_i$ is generated as:
 
     $$
     \varepsilon_i \sim \mathcal{N}\!\left(0,\;
     \frac{\exp\{c(x_i - \mu_x)\}}
     {\mathbb{E}\!\left[\exp\{c(x_i - \mu_x)\}\right]}\right)
     $$
+
+    -   $\mu_x$ is the mean of $x$, $c$ controls level of heteroscedasticity
 
     -   $c=0$: The variance simplifies to $1$ for all $x_i$, giving the homoscedastic baseline$$
         \varepsilon_i \sim \mathcal{N}(0,1)
@@ -107,9 +109,38 @@ To evaluate how key performance metrics vary under increasing heteroscedasticity
 
 4.  Each scenario is replicated 1000 times, consistent with the average number of iterations used in previous studies [2].
 
+```{r residual_over_yhat, fig.cap="Residual over Predicted Y across Level of Heteroscedasticity", echo=F}
+# 1) Fit OLS within each c_param group and add y_hat & resid
+sim_with_fit <- simulated_data %>%
+  group_by(c_param) %>%
+  group_modify(~{
+    fit <- lm(y ~ x, data = .x)
+    .x %>%
+      mutate(
+        y_hat = fitted(fit),
+        resid = resid(fit)
+      )
+  }) %>%
+  ungroup()
+
+# 2) Keep only the requested c's
+keep_cs <- c(0, 2, 4, 6)
+plot_df <- sim_with_fit %>% filter(c_param %in% keep_cs)
+
+# 3) Residual vs y_hat subplots (one panel per c_param)
+ggplot(plot_df, aes(y_hat, resid)) +
+  geom_point(alpha = 0.4, shape = 16, size = 0.3) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  # Option A: linear fit (fast)
+  geom_smooth(method = "lm", se = FALSE, formula = y ~ x) +
+  facet_wrap(~ c_param, ncol = 2, labeller = label_both) +
+  labs(x = expression(hat(y)), y = "Residual") +
+  theme_minimal()
+```
+
 To introduce heteroscedasticity, the error variance is modeled as a function of $x$, with larger values of $c$ producing more uneven variability across $x$. Without adjustment, both the average error variance $\mathbb{E}[\operatorname{Var}(\varepsilon_i)]$ and the variance of the outcome $y$ increase as $c$ grows, confounding the effect of heteroscedasticity with overall noise. To address this, the variance function is normalized by $\mathbb{E}[\exp\{c(x_i - \mu_x)\}]$, which fixes the average error variance at $1$. This normalization isolates the impact of heteroscedasticity itself while keeping the total noise level constant, allowing fair comparison between homoscedastic and heteroscedastic settings.
 
-```{r chunk-name, fig.cap="Table 1 ", echo=F}
+```{r chunk-name, fig.cap=" ", echo=F}
 library(dplyr)
 # Summarize datasets to check variances
 average_error_variance <- simulated_data %>%
@@ -149,9 +180,9 @@ Table 1 provides the detailed numerical results corresponding to Figure 1, inclu
 
 ## Conclusion
 
-These simulation results suggest that although OLS slope estimates remain unbiased under heteroscedasticity, inference based on model-based standard errors is unreliable. As shown in Figure 1 and Table 1, empirical variability increased as heteroscedasticity strengthened, while model-based standard errors decreased slightly. This mismatch produced confidence intervals with substantially reduced coverage, dropping nearly 20 percentage points below the nominal level under strong heteroscedasticity.
+These simulations show that while OLS slope estimates remain unbiased under heteroscedasticity, inference based on model-based standard errors is unreliable. As heteroscedasticity increased, empirical variability rose but model-based standard errors fell slightly, leading to confidence intervals with coverage up to 20 percentage points below nominal levels.
 
-This indicates that when the underlying data are heteroscedastic, traditional OLS-based inference is unreliable. In particular, researchers relying on nominal confidence intervals may draw overly optimistic conclusions about the precision of their estimates. In practice, robust alternatives such as heteroscedasticity-consistent standard errors or alternative modeling approaches should be used to ensure valid inference.
+Thus, OLS-based inference under heteroscedasticity gives overly optimistic precision. Robust alternatives—such as heteroscedasticity-consistent standard errors or alternative models—should be used to ensure valid inference.
 
 There are limitations to this study. Only one covariate distribution, a fixed sample size, and a single form of heteroscedasticity were examined. Future work could investigate other covariate distributions, larger sample sizes, and different error variance structures.
 

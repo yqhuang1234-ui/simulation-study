@@ -18,11 +18,9 @@ lapply(packages, load_or_install)
 
 # Load simulation results
 path <- "~/Library/CloudStorage/Dropbox/School/CU/fall 2025/BIOS 6618 adv biostatistical method/midterm simulation/simulation-study/"
-fits_file <- '/data/2025-10-20_best-centered-log-linear-fits_ols-heteroscedasticity-simulation_n100_reps1000_seed1234_c0-0.4-1-2-3-4-6-8.rds'
-simulated_data_file <- '/data/2025-10-20_best-centered-log-linear-datasets_ols-heteroscedasticity-simulation_n100_reps1000_seed1234_c0-0.4-1-2-3-4-6-8.rds'
+fits_file <- '/data/2025-10-21_optimized-seed-best-param-centered-log-linear-fits_ols-heteroscedasticity-simulation_n100_reps1000_seed1234_c0-2-4-6.rds'
+simulated_data_file <- '/data/2025-10-21_optimized-seed-best-param-centered-log-linear-datasets_ols-heteroscedasticity-simulation_n100_reps1000_seed1234_c0-2-4-6.rds'
 fits <- readRDS(paste0(path, fits_file))
-fits <- fits %>%
-  filter(c_param %in% c(0, 2, 4, 6))  # Ensure only desired c_param values are included
 simulated_data <- readRDS(paste0(path, simulated_data_file))
 # Extract parameter settings from filename for labeling outputs
 param_data <- sub(".*_(n[0-9].*).rds$", "\\1", basename(fits_file))
@@ -45,12 +43,31 @@ library(dplyr)
 average_error_variance <- simulated_data %>%
   group_by(c_param) %>%
   summarise(
-    var_y = var(y),                        # variance of Y
-    mean_eps_var = mean(eps_var),          # average error variance (should be ~1 if normalized)
-    var_y_unnorm = var(y_unnorm),          
-    mean_eps_var_unnorm = mean(eps_var_unnorm), 
+    var_y = round(var(y),0),                        # variance of Y
+    mean_eps_var = round(mean(eps_var),0),          # average
+    var_y_unnorm = round(var(y_unnorm),0),          
+    mean_eps_var_unnorm = round(mean(eps_var_unnorm), 0),
     .groups = "drop"
   )
+average_error_variance
+library(knitr)
+library(kableExtra)
+
+# Reshape data for plotting
+library(tidyr)
+
+variance_table <- average_error_variance %>%
+  kbl(
+    booktabs = TRUE,
+    digits = 0,
+    col.names = c("c", "Var(Y)", "Mean error variance", 
+                  "Var(Y) unnormalized", "Mean error variance unnormalized")
+  ) %>%
+  kable_styling(latex_options = c("HOLD_position", "striped", "scale_down"))
+
+library(ggplot2)
+
+
 
 #
 fits_summ <- fits %>%
@@ -140,6 +157,46 @@ tbl <- fits_table_fmt %>%
 
 tbl
 
+fits_table <- fits_summ %>%
+  mutate(
+    bias          = sprintf("%.3f (±%.3f)", bias, mcse_bias),
+    se_beta1_hat  = sprintf("%.3f (±%.3f)", se_beta1_hat, mcse_se_mean),
+    sd_beta1_hat  = sprintf("%.3f (±%.3f)", sd_beta1_hat, mcse_sd_beta1),
+    rel_err_se    = sprintf("%.1f (±%.1f)", rel_err_se*100, mcse_rel_err*100),
+    ci_coverage   = sprintf("%.1f (±%.1f)", ci_coverage*100, mcse_cov*100)
+  ) %>%
+  select(c_param, bias, se_beta1_hat, sd_beta1_hat, rel_err_se, ci_coverage)
+
+# Bold + underline target cells
+fits_table_fmt <- fits_table %>%
+  mutate(
+    rel_err_se   = ifelse(row_number() == row_min_relerr,
+                          cell_spec(rel_err_se, "html", bold = TRUE),
+                          rel_err_se),
+    ci_coverage  = ifelse(row_number() == row_min_cov,
+                          cell_spec(ci_coverage, "html", bold = TRUE),
+                          ci_coverage),
+    sd_beta1_hat = ifelse(row_number() == row_max_empse,
+                          cell_spec(sd_beta1_hat, "html", bold = TRUE),
+                          sd_beta1_hat)
+  ) %>%
+  # rename for display only
+  rename(c = c_param)
+
+# Render (escape = FALSE to allow HTML styling)
+tbl <- fits_table_fmt %>%
+  kable("html",
+        escape = FALSE,
+        col.names = c("c", "Bias",
+                      "Model SE",
+                      "Empirical SE",
+                      "Relative error in model SE (%)",
+                      "CI Coverage (%)")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                full_width = FALSE, position = "center")
+
+tbl
+
 #-----------------------------------------------
 # Long data + factor levels + ref lines
 metrics_long <- bind_rows(
@@ -218,15 +275,36 @@ p <- ggplot(metrics_long, aes(x = c_param, y = est, color = c_factor)) +
 
 print(p)
 
+#-----------------------------------------------
+
+
+# Residuals vs Fitted (y_hat) plot, facetted by c_param
+ggplot(simulated_data, aes(x = y_hat, y = resi)) +
+  geom_point(alpha = 0.5, shape = 16, size = 0.8) +
+  geom_hline(yintercept = 0, linetype = 2, color = "gray40") +
+  geom_smooth(method = "loess", se = FALSE, formula = y ~ x, n = 500, color = "blue") +
+  facet_wrap(~ c_param, ncol = 2, labeller = label_both) +
+  labs(
+    x = expression(hat(y)), 
+    y = "Residual",
+    title = "Residuals vs Fitted by c_param (Homoscedasticity vs Heteroscedasticity)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    strip.background = element_rect(fill = "gray90", color = NA),
+    strip.text = element_text(face = "bold")
+  )
+
+
 
 ## ================================
 ## 3. Save results table and figure
 ## ================================
 
-table_save <- paste0(save_results_path,"/01_best-centered-log-linear-table-simulation-results-mcse_",param_data,'.png')
-save_kable(tbl, table_save , zoom = 4, vwidth = 1000, vheight = 1200)
-plot_save <- paste0(save_results_path,"/02_best-centered-log-linear-plots-simulation-results-mcse_",param_data,'.png')
-ggsave(plot_save, plot = p, width = 8, height = 6, dpi = 500)
+table_save <- paste0(save_results_path,"/01_optimized-seed-best-centered-log-linear-table-simulation-results-mcse_",param_data,'.png')
+save_kable(tbl, table_save , zoom = 10, vwidth = 327, vheight = 206)
+plot_save <- paste0(save_results_path,"/02_optimized-seed-best-centered-log-linear-plots-simulation-results-mcse_",param_data,'.png')
+ggsave(plot_save, plot = p, width = 6, height = 6, dpi = 1000)
 message("Saved results table to: ", table_save,
         "\nSaved results plot to: ", plot_save)
 average_error_variance

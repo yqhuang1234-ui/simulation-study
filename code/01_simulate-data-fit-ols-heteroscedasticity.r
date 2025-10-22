@@ -14,7 +14,7 @@ x_max <- 6
 eps_mean <- 0
 # heteroscedasticity parameters to simulate
 # when c=0, variance is 1 and it is homoscedastic baseline.
-c_params <- c(0, 0.4, 1, 2, 3, 4, 6, 8)
+c_params <- c(0,2,4,6)
 # store parameters in a list for easy passing to functions
 params <- list(
   n = sample_size,
@@ -25,7 +25,7 @@ params <- list(
   beta1 = beta1
 )
 # path to save results
-save_path <- "./data/"
+save_path <- "~/Library/CloudStorage/Dropbox/School/CU/fall 2025/BIOS 6618 adv biostatistical method/midterm simulation/simulation-study/data/"
 
 ## ================================
 ## 1. Function
@@ -187,6 +187,8 @@ fit_lm <- function(dat, verbose=FALSE) {
   stopifnot(all(c("x","y") %in% names(dat)))
   
   fit <- lm(y ~ x, data = dat)
+  dat$y_hat  <- fitted(fit)     # or predict(fit)
+  dat$resid  <- residuals(fit)  # dat$y - dat$y_hat
   n <- nobs(fit)
   r2 <- summary(fit)$r.squared
   beta1_hat <- coef(fit)[["x"]]
@@ -199,7 +201,6 @@ fit_lm <- function(dat, verbose=FALSE) {
   ci <- confint(fit, "x", level = 0.95)
   ci_lower <- ci[1]
   ci_upper <- ci[2]
-  
   result <- data.frame(
     beta1_hat = beta1_hat,
     se = se,
@@ -216,7 +217,7 @@ fit_lm <- function(dat, verbose=FALSE) {
     message("model run successfully")
     print(result)
   }
-  return(result)
+  return(list(result=result, data=dat))
 }
 #-----------------------------------------------------------
 #' Simulate datasets and model fits across multiple c values
@@ -242,7 +243,6 @@ fit_lm <- function(dat, verbose=FALSE) {
 #'
 simulate_over_c <- function(c_values, params, n_reps, seed = NULL) {
   x_min <- params$x_min; x_max <- params$x_max; n <- params$n
-  if (!is.null(seed)) set.seed(seed)
 
   fits_all     <- NULL
   datasets_all <- NULL
@@ -257,14 +257,21 @@ simulate_over_c <- function(c_values, params, n_reps, seed = NULL) {
   iter <- 0L
 
   for (r in seq_len(n_reps)) {
+    # Seed for x (depends only on repetition, not c)
+    set.seed(seed + r)
     # for each rep, generate x once. x is same across all c but different across reps
     x_rep <- runif(n, min = x_min, max = x_max)
     # for each c, generate data using same x_rep
     for (j in seq_along(c_values)) {
       c_val <- c_values[j]
+      # Seed for error term (depends on rep + c, but not grid length/order)
+      local_seed <- seed + r*100000 + as.integer(round(c_val*1000))
+      set.seed(local_seed)
 
       dat <- get_data(c = c_val, x = x_rep, params = params)
-      fit <- fit_lm(dat)
+      fit_results_all <- fit_lm(dat)
+      fit <- fit_results_all$result
+      dat <- fit_results_all$data
 
       # tag
       dat$rep <- r; dat$seed <- seed
@@ -402,8 +409,8 @@ c_slug <- paste0("c", paste(c_vals, collapse = "-"))
 param_suffix <- sprintf("n%d_reps%d_seed%s_%s", n, n_reps, seed_val, c_slug)
 
 # final filenames
-fits_rds      <- file.path(save_path, sprintf("%s_best-centered-log-linear-fits_%s_%s.rds",      iso_date, experiment_tag, param_suffix))
-datasets_rds  <- file.path(save_path, sprintf("%s_best-centered-log-linear-datasets_%s_%s.rds",  iso_date, experiment_tag, param_suffix))
+fits_rds      <- file.path(save_path, sprintf("%s_optimized-seed-best-param-centered-log-linear-fits_%s_%s.rds",      iso_date, experiment_tag, param_suffix))
+datasets_rds  <- file.path(save_path, sprintf("%s_optimized-seed-best-param-centered-log-linear-datasets_%s_%s.rds",  iso_date, experiment_tag, param_suffix))
 
 # save (RDS for fidelity + CSV for sharing)
 saveRDS(res$fits,     fits_rds)
