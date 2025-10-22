@@ -17,15 +17,15 @@ lapply(packages, load_or_install)
 
 # Load simulation results
 path <- "~/Library/CloudStorage/Dropbox/School/CU/fall 2025/BIOS 6618 adv biostatistical method/midterm simulation/simulation-study/"
-fits_file <- '/data/2025-10-21_optimized-seed-best-param-centered-log-linear-fits_ols-heteroscedasticity-simulation_n100_reps1000_seed1234_c0-0.4-1-6.rds'
-simulated_data_file <- '/data/2025-10-21_optimized-seed-best-param-centered-log-linear-datasets_ols-heteroscedasticity-simulation_n100_reps1000_seed1234_c0-0.4-1-6.rds'
+fits_file <- '/data/2025-10-22_optimized-seed-best-param-centered-log-linear-fits_ols-heteroscedasticity-simulation_n100_reps1000_seed1234_c0-0.3-1-6.rds'
+simulated_data_file <- '/data/2025-10-22_optimized-seed-best-param-centered-log-linear-datasets_ols-heteroscedasticity-simulation_n100_reps1000_seed1234_c0-0.3-1-6.rds'
 fits <- readRDS(paste0(path, fits_file))
 simulated_data <- readRDS(paste0(path, simulated_data_file))
 # Extract parameter settings from filename for labeling outputs
 param_data <- sub(".*_(n[0-9].*).rds$", "\\1", basename(fits_file))
 message("Analyzing results for parameter settings: ", param_data)
 true_beta <- unique(fits$beta1_true)
-
+c_params <- c(0,0.3,1,6)
 # ISO 8601 date (date only):
 iso_date <- format(Sys.Date(), "%Y-%m-%d")
 save_results_path <- paste0(path,"/results/",iso_date)
@@ -151,8 +151,8 @@ tbl
 # Long data + factor levels + ref lines
 metrics_long <- bind_rows(
   fits_summ %>% transmute(c_param, metric = "Bias",                 est = bias,             mcse = mcse_bias),
-  fits_summ %>% transmute(c_param, metric = "Model SE",             est = se_beta1_hat,     mcse = mcse_se_mean),
   fits_summ %>% transmute(c_param, metric = "Empirical SE",         est = sd_beta1_hat,     mcse = mcse_sd_beta1),
+  fits_summ %>% transmute(c_param, metric = "Model SE",             est = se_beta1_hat,     mcse = mcse_se_mean),
   fits_summ %>% transmute(c_param, metric = "Relative Error in Model SE (%)",est = round(rel_err_se*100,1),   mcse = mcse_rel_err*100),
   fits_summ %>% transmute(c_param, metric = "Coverage(%)",          est = ci_coverage*100,  mcse = mcse_cov*100)
 ) %>%
@@ -164,69 +164,71 @@ metrics_long <- bind_rows(
       metric == "Coverage(%)" ~ 95,
       TRUE ~ NA_real_
     ),
-    metric  = factor(metric, levels = c("Bias","Model SE","Empirical SE","Relative Error in Model SE (%)","Coverage(%)")),
-    c_factor = factor(c_param, levels = c(0, 2, 4, 6))
+    metric  = factor(metric, levels = c("Bias","Empirical SE","Model SE","Relative Error in Model SE (%)","Coverage(%)")),
+    c_factor = factor(c_param, levels = c_params) 
   )
 
-# Define color map explicitly
-col_map <- c(
-  "0" = "black",  # blue
-  "2" = "black",  # light orange
-  "4" = "black",  # medium orange
-  "6" = "black"   # dark orange
+# Make sure c_param is treated as factor with correct order
+metrics_long$c_param <- factor(
+  metrics_long$c_param,
+  levels = sort(unique(metrics_long$c_param))
 )
-
-# Make sure c_factor is a factor for coloring
-metrics_long <- metrics_long %>%
-  mutate(c_factor = factor(c_param, levels = c(0, 2, 4, 6)))
 
 # Labels only for c=0 and c=6
 label_data <- metrics_long %>% 
-  filter(c_param %in% c(0, 6)) %>%
+  filter(c_param %in% c("0", "6")) %>%
   mutate(
     metric_chr = as.character(metric),
-    label_val = ifelse(
-      grepl("%", metric_chr),
-      sprintf("%.1f%%", est),   # 1 decimal + % if metric has %
-      sprintf("%.3f", est)      # otherwise 2 decimals
+    label_val = case_when(
+      grepl("%", metric_chr) ~ sprintf("%.1f%%", est),   # 1 decimal + %
+      metric_chr == "Bias"   ~ sprintf("%.4f", est),     # 4 decimals for Bias
+      TRUE                   ~ sprintf("%.3f", est)      # otherwise 3 decimals
     ),
-    hjust_val = ifelse(c_param == 0, -0.1, 1.1),  
+    hjust_val = ifelse(c_param == "0", -0.1, 1.1),  
     vjust_val = -0.5
   )
 
-p <- ggplot(metrics_long, aes(x = c_param, y = est, color = c_factor)) +
+
+p <- ggplot(metrics_long, aes(x = c_param, y = est)) +
   geom_hline(aes(yintercept = ref), linetype = "dashed", na.rm = TRUE, color = "grey50") +
-  geom_errorbar(aes(ymin = lo, ymax = hi), width = 0, linewidth = 0.5) +
-  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = lo, ymax = hi), width = 0, linewidth = 0.5, color = "black") +
+  geom_point(size = 2, color = "black") +
   geom_text(
     data = label_data,
     aes(label = label_val, hjust = hjust_val, vjust = vjust_val),
-    size = 3, show.legend = FALSE
+    size = 3, color = "black"
   ) +
-  # show axes (incl. x ticks) on every facet
   ggh4x::facet_wrap2(~ metric, scales = "free_y", ncol = 2, axes = "all") +
-  scale_x_continuous(breaks = c(0, 2, 4, 6)) +
-  scale_color_manual(values = col_map) +
-  guides(color = "none") +
+  # facet-specific y-limit for Model SE
+  ggh4x::facetted_pos_scales(
+    y = list(
+      metric == "Model SE" ~ scale_y_continuous(limits = c(0.02, 0.072)),
+      metric == "Bias" ~ scale_y_continuous(limits = c(-0.02, 0.02))
+    )
+  ) +
   labs(
     x = "Heteroscedasticity parameter (c)",
     y = "Estimate (point ± 1.96 × MC-SE)"
   ) +
   theme_minimal(base_size = 12) +
   theme(
-    panel.border = element_rect(color = "grey60", fill = NA, linewidth = 0.5),
+    panel.border = element_rect(color = "lightgray", fill = NA, linewidth = 0.5),
+    panel.background = element_rect(fill = "white", color = NA),     # inside each panel
+    plot.background  = element_rect(fill = "gray95", color = NA),
+    strip.text = element_text(face = "bold", size = 10),            # bold facet titles
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank()
   )
 
 p
 
+
 #-----------------------------------------------
 # create residuals vs fitted plot
 # 3) Residual vs y_hat subplots (one panel per c_param)
 my_labels <- c(
   "0" = "c = 0 (Homoscedastic)",
-  "0.2" = "c = 0.2 (Mild Heteroscedasticity)",
+  "0.4" = "c = 0.4 (Mild Heteroscedasticity)",
   "1" = "c = 1 (Moderate Heteroscedasticity)",
   "6" = "c = 6 (Strong Heteroscedasticity)"
 )
