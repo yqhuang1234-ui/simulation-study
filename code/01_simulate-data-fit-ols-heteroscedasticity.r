@@ -31,18 +31,36 @@ save_path <- "~/Library/CloudStorage/Dropbox/School/CU/fall 2025/BIOS 6618 adv b
 ## 1. Function
 ## ================================
 #------------------------------------------------------------
-#' Compute error variance
+#' Compute heteroscedastic error variance functions
 #'
-#' Given predictor values x, parameter c, and reference mean_x and var_x 
-#' (the mean and variance of the predictor distribution), compute the
-#' conditional variance of the error term.
+#' This function is designed for simulation studies where the predictor
+#' \code{x} is assumed to be uniformly distributed on \code{[a, b]}.
+#' It defines the variance of the error term as an exponential function of
+#' \code{x}, centered at the midpoint of the interval, and scaled by the
+#' heteroscedasticity parameter \code{c}.
+#' 
+#' The normalization factor is computed under the assumption that
+#' \code{X ~ Unif[a, b]}, ensuring that the average normalized variance
+#' across the uniform distribution is equal to 1.
 #'
-#' @param x Numeric vector of predictor values.
-#' @param c Numeric scalar, heteroscedasticity parameter.
-#' @param mean_x Mean of the predictor distribution (e.g., uniform mean).
-#' @param var_x Variance of the predictor distribution (e.g., uniform variance).
+#' @param x Numeric vector. Predictor values at which to evaluate the variance.
+#' @param c Numeric scalar. Heteroscedasticity strength parameter. Larger
+#'   values of \code{c} make the variance more uneven across \code{x}.
+#' @param a Numeric scalar. Lower bound of the covariate interval.
+#' @param b Numeric scalar. Upper bound of the covariate interval.
 #'
-#' @return Numeric vector of conditional error variances for each x.
+#' @return A list with two components:
+#' \describe{
+#'   \item{eps_var_norm}{Normalized variance function, scaled so that
+#'   \eqn{E[\varepsilon^2] = 1} when \code{X ~ Unif[a, b]}.}
+#'   \item{eps_var_unnorm}{Unnormalized variance function, equal to
+#'   \eqn{\exp(c(x - \mu))}.}
+#' }
+#' @details
+#' - Midpoint of the interval: \eqn{\mu = (a+b)/2}.
+#' - Scaling term: \eqn{z = (b-a)c/2}.
+#' - Normalization factor: \eqn{E[\exp(c(X-\mu))] = \sinh(z)/z}, with
+#'   \code{X ~ Unif[a, b]}. For small \eqn{|z|}, a Taylor expansion is used.
 get_eps_var <- function(x, c, a, b) {
   # midpoint of the interval
   mu <- (a + b) / 2
@@ -96,6 +114,9 @@ get_eps_var <- function(x, c, a, b) {
 #'   - c_param: heteroscedasticity parameter
 #'   - eps: simulated error terms
 #'   - eps_var: conditional variance of each error term
+#'   - y_unnorm: response values from unnormalized variance
+#'   - eps_unnorm: error terms from unnormalized variance
+#'   - eps_var_unnorm: unnormalized conditional variance of each error term
 #'
 #' @details
 #' Why normalization is applied:
@@ -171,6 +192,9 @@ get_data <- function(c, x, params, verbose=FALSE) {
 #'   - p_value: p-value testing H0: beta1 = 0
 #'   - n: sample size used in the regression
 #'   - r_squared: model R-squared
+#'   - c_param: heteroscedasticity parameter used in data generation
+#'   - beta1_true: true slope parameter used in data generation
+#'   - beta0_true: true intercept parameter used in data generation
 #'
 #' @details
 #' Why this is useful:
@@ -220,27 +244,58 @@ fit_lm <- function(dat, verbose=FALSE) {
   return(list(result=result, data=dat))
 }
 #-----------------------------------------------------------
-#' Simulate datasets and model fits across multiple c values
+#' Run simulation study over multiple heteroscedasticity values
 #'
-#' This function loops over a vector of heteroscedasticity parameters (`c_values`)
-#' and repeated replications (`n_reps`). For each replication, a vector of predictors
-#' `x` is drawn once from Uniform(x_min, x_max) and reused across all `c` values. 
-#' For each combination of `rep` and `c`, data are simulated via `get_data()` and
-#' models are fitted with `fit_lm()`. Results are collected into two stacked data frames.
+#' This function performs repeated simulations of linear regression
+#' under varying heteroscedasticity parameters \code{c}, collecting
+#' both the simulated datasets and the fitted model results.
 #'
-#' A progress bar is shown in the console, and a one-line status message is updated
-#' during the run to indicate current replication, c index, and iteration count.
+#' For each repetition:
+#' - A single covariate sample \code{x_rep ~ Unif(x_min, x_max)} is generated.
+#' - For each \code{c} in \code{c_values}, outcome data are generated via
+#'   \code{get_data()}, with heteroscedastic error variance defined by \code{c}.
+#' - A linear model is fitted using \code{fit_lm()}, and both the data
+#'   and fit summaries are stored.
 #'
-#' @param c_values Numeric vector. Values of heteroscedasticity parameter `c` to simulate.
-#' @param params List. 
-#'   parameters required by `get_data()`.
-#' @param n_reps Integer. Number of replications to run for each `c` value.
-#' @param seed Optional integer. If supplied, sets random seed for reproducibility.
+#' Seeds are carefully managed:
+#' - The covariate \code{x_rep} depends only on the repetition index \code{r}.
+#' - The error term depends on both repetition and \code{c}, but not on the
+#'   order of the grid.
 #'
-#' @return A list with two elements:
-#'   \item{fits}{Data frame of stacked model fit results}
-#'   \item{datasets}{Data frame of stacked simulated datasets}
+#' @param c_values Numeric vector. Values of the heteroscedasticity parameter
+#'   \code{c} to simulate over.
+#' @param params List of parameters, typically including:
+#'   \describe{
+#'     \item{\code{x_min}}{Lower bound of covariate support.}
+#'     \item{\code{x_max}}{Upper bound of covariate support.}
+#'     \item{\code{n}}{Sample size per dataset.}
+#'   }
+#' @param n_reps Integer. Number of independent simulation repetitions.
+#' @param seed Integer or \code{NULL}. Master seed for reproducibility.
 #'
+#' @return A list with two components:
+#' \describe{
+#'   \item{fits}{Data frame of fitted regression results across all reps
+#'   and \code{c} values. Includes repetition and seed tags.}
+#'   \item{datasets}{Data frame of all simulated datasets, annotated with
+#'   repetition and seed identifiers.}
+#' }
+#' @details
+#' **Seed setup rationale:**
+#' - The covariate \code{x_rep} is seeded only by the repetition index \code{r}.
+#'   This ensures that within each repetition, the same \code{x} values are used
+#'   across all \code{c}, allowing direct comparisons between heteroscedasticity
+#'   settings without extra randomness from covariates.
+#' - The error term seed is constructed as a function of \code{r} and \code{c}
+#'   (\code{local_seed <- seed + r*100000 + round(c*1000)}).  
+#'   This guarantees:
+#'   \itemize{
+#'     \item Independence of error draws across both reps and \code{c} values.
+#'     \item Reproducibility that does not depend on the *order* of \code{c_values}
+#'           or the grid length (important for parallelization or subsetting).
+#'   }
+#' - Together, this structure provides stable and comparable simulations while
+#'   preserving reproducibility across runs.
 simulate_over_c <- function(c_values, params, n_reps, seed = NULL) {
   x_min <- params$x_min; x_max <- params$x_max; n <- params$n
 

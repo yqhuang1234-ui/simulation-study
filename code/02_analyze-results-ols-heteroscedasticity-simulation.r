@@ -25,7 +25,7 @@ simulated_data <- readRDS(paste0(path, simulated_data_file))
 param_data <- sub(".*_(n[0-9].*).rds$", "\\1", basename(fits_file))
 message("Analyzing results for parameter settings: ", param_data)
 true_beta <- unique(fits$beta1_true)
-c_params <- c(0,0.3,1,6)
+c_params <- unique(fits$c_param)
 # ISO 8601 date (date only):
 iso_date <- format(Sys.Date(), "%Y-%m-%d")
 save_results_path <- paste0(path,"/results/",iso_date)
@@ -97,6 +97,7 @@ fits_summ <- fits %>%
 ## ================================
 ## 2. Create figure with metrics and 95% MC-SE error bars 
 ## ================================
+# 1.Create table with variance of Y and expected error variance
 average_error_variance |>
   kbl(
     booktabs = TRUE,
@@ -109,18 +110,18 @@ average_error_variance |>
       "$\\mathrm{Var}(Y)$",
       "$\\mathbb{E}[\\mathrm{Var}(\\varepsilon\\mid X)]$"
     ),
-    caption = "Variance of $Y$ and expected error variance $\\mathbb{E}[\\mathrm{Var}(\\varepsilon\\mid X)]$ across heteroscedasticity levels ($c$): normalized vs. unnormalized."
+    caption = "Variance of $Y$ and expected error variance across heteroscedasticity levels ($c$)"
   ) |>
   add_header_above(c(" " = 1, "Normalized" = 2, "Unnormalized" = 2)) |>
   kable_styling(
-    latex_options = c("HOLD_position","striped","scale_down"),
+    latex_options = c("HOLD_position","scale_down"),
     full_width    = FALSE,
     position      = "center",
-    font_size     = 10
+    font_size     = 7
   )
 
 #-----------------------------------------------------
-# Create table with formatted metrics including MC-SEs
+# 2.Create table with formatted metrics including MC-SEs
 ## 1) Find rows using numeric values from fits_summ
 row_min_relerr <- which.min(fits_summ$rel_err_se)      # rel_err_se is in proportion (not %)
 row_min_cov    <- which.min(fits_summ$ci_coverage)     # proportion (0–1)
@@ -161,35 +162,19 @@ tbl <- fits_table_fmt %>%
                 full_width = FALSE, position = "center")
 
 tbl
-#---------------no bold version for knit----------------
-# Regular kbl table for PDF (no bold/HTML)
+#---------------compatible version for knit----------------
 tbl2 <- kbl(
   fits_table,
-  caption   = "Simulation results for OLS regression under heteroscedasticity",
-  booktabs  = TRUE,
-  align     = "cc",
-  col.names = c("c", "Bias", "Model SE", "Empirical SE",
-                "Relative error in model SE (%)", "CI Coverage (%)")
-) %>%
-  kable_styling(latex_options = c("HOLD_position","scale_down"),
-                full_width    = FALSE,
-                position      = "center",
-                font_size     = 20)
-
-tbl2
-#-----------------------------------------------
-tbl2 <- kbl(
-  fits_table,
-  caption   = "Simulation results for OLS regression under heteroscedasticity",
+  caption   = "Simulation results for OLS regression under heteroscedasticity with Monte Carlo standard errors (in parentheses)",
   booktabs  = TRUE,
   align     = "cc",
   col.names = c(
     "c", 
     "Bias", 
-    "\\makecell{Model\\\\SE (\\%)}", 
-    "\\makecell{Empirical\\\\SE (\\%)}", 
-    "\\makecell{Relative\\\\error in\\\\model SE (\\%)}", 
-    "\\makecell{CI\\\\Coverage (\\%)}"
+    "\\makecell{Model\\\\SE}", 
+    "\\makecell{Empirical\\\\SE}", 
+    "\\makecell{Relative\\\\error in\\\\model SE\\\\(\\%)}", 
+    "\\makecell{CI\\\\Coverage\\\\(\\%)}"
   ),
   escape = FALSE   # allow LaTeX code inside names
 ) %>%
@@ -197,12 +182,11 @@ tbl2 <- kbl(
     latex_options = c("HOLD_position"),
     full_width    = FALSE,
     position      = "center",
-    font_size     = 7
+    font_size     = 9
   )
 tbl2
------------------------------------------------------
-# Create figure with metrics and 95% MC-SE confidence intervals
-# Long data + factor levels + ref lines
+#-----------------------------------------------------
+# 3.Create figure with metrics and 95% MC-SE confidence intervals
 metrics_long <- bind_rows(
   fits_summ %>% transmute(c_param, metric = "Bias",                 est = bias,             mcse = mcse_bias),
   fits_summ %>% transmute(c_param, metric = "Empirical SE",         est = sd_beta1_hat,     mcse = mcse_sd_beta1),
@@ -259,8 +243,8 @@ p <- ggplot(metrics_long, aes(x = c_param, y = est)) +
       metric == "Model SE" ~ scale_y_continuous(limits = c(0.02, 0.082)),
       metric == "Bias" ~ scale_y_continuous(limits = c(-0.02, 0.02)),
       metric == "Coverage(%)" ~ scale_y_continuous(limits = c(60, 100)),
-      metric == "Empirical SE" ~ scale_y_continuous(limits = c(0.05, 0.12)),
-      metric == "Relative Error in Model SE (%)" ~ scale_y_continuous(limits = c(5, -50))
+      metric == "Empirical SE" ~ scale_y_continuous(limits = c(0.05, 0.13)),
+      metric == "Relative Error in Model SE (%)" ~ scale_y_continuous(limits = c(10, -50))
     )
   ) +
   labs(
@@ -279,10 +263,8 @@ p <- ggplot(metrics_long, aes(x = c_param, y = est)) +
 
 p
 
-
 #-----------------------------------------------
-# create residuals vs fitted plot
-# 3) Residual vs y_hat subplots (one panel per c_param)
+# 4.create residuals vs fitted plot
 my_labels <- c(
   "0" = "c = 0 (Homoscedastic)",
   "0.3" = "c = 0.3 (Mild Heteroscedasticity)",
@@ -290,7 +272,8 @@ my_labels <- c(
   "6" = "c = 6 (Strong Heteroscedasticity)"
 )
 
-ggplot(simulated_data, aes(y_hat, resid)) +
+ggplot(simulated_data %>% slice_sample(n = 48000), 
+       aes(y_hat, resid)) +
   geom_point(alpha = 0.3, size = 0.4) +
   geom_hline(yintercept = 0, linetype = 2) +
   geom_smooth(method = "lm", se = FALSE, formula = y ~ x, color = "#33A1E0") +
@@ -305,7 +288,7 @@ ggplot(simulated_data, aes(y_hat, resid)) +
   theme(
     panel.grid = element_blank(),            # no grid lines
     strip.background = element_blank(),      # no gray background for facet labels
-    strip.text = element_text(face = "bold"),
+    strip.text = element_text(size=12,face = "bold"),
     panel.border = element_rect(color = "lightgray", fill = NA, linewidth = 0.5) # light gray box
   )
 
