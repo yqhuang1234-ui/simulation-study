@@ -305,7 +305,7 @@ simulated_data %>%
 ## ================================
 
 table_save <- paste0(save_results_path,"/01_optimized-seed-best-centered-log-linear-table-simulation-results-mcse_",param_data,'.png')
-save_kable(tbl, table_save , zoom = 10, vwidth = 327, vheight = 206)
+save_kable(tbl, table_save , zoom = 10, vwidth = 400, vheight = 206)
 plot_save <- paste0(save_results_path,"/02_optimized-seed-best-centered-log-linear-plots-simulation-results-mcse_",param_data,'.png')
 ggsave(plot_save, plot = p, width = 6, height = 6, dpi = 1000)
 message("Saved results table to: ", table_save,
