@@ -97,7 +97,7 @@ rmarkdown::render(
 |---|---|
 | `data/` | RDS files with simulated datasets and OLS fit results for each c value |
 | `results/2025-10-24/` | PNG: summary table with MC-SE, multi-panel plot (bias, SE, coverage, relative error) |
-| `PDF Reports/` | Final knitted PDF reports |
+| `PDF Reports/` | Final knitted PDF reports — [view report](PDF%20Reports/10-24-25_yanqi-huang_simulation-report_only.pdf) |
 
 ## Key Findings
 
