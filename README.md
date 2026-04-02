@@ -2,6 +2,7 @@
 
 **Author:** Yanqi Huang  
 **Course:** BIOS 6618 Advanced Biostatistical Methods — University of Colorado (Fall 2025)
+**Report:** [view report](10-24-25_yanqi-huang_simulation-report_only.pdf) 
 
 ## Overview
 
