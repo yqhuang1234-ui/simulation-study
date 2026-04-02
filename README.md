@@ -1,7 +1,7 @@
 # simulation-study
 
 **Author:** Yanqi Huang  
-**Report:** [view report](10-24-25_yanqi-huang_simulation-report_only.pdf) 
+**Report:** [view simulation report](10-24-25_yanqi-huang_simulation-report_only.pdf) 
 
 ## Overview
 
